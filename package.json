@@ -19,6 +19,11 @@
   "build": {
     "appId": "com.smarttodo.desktop",
     "productName": "智能待办",
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ],
+    "compression": "maximum",
     "directories": {
       "output": "dist"
     },
