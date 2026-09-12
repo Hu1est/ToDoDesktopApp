@@ -91,7 +91,7 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
-  // 关闭行为：按「设置 → 退出操作」执行（后台常驻 / 彻底退出 / 每次询问）
+  // 关闭行为：第一次询问一次，之后按记住的选择执行（后台常驻 / 彻底退出）
   mainWindow.on('close', (e) => {
     if (isQuitting) return;          // 正在退出 → 放行
     e.preventDefault();
@@ -117,12 +117,12 @@ function saveWindowState() {
 }
 
 /* -------------------------------------------------------------
- * 退出操作（设置 → 退出操作，可直接选择，选择后立即生效）
+ * 退出操作（设置 → 退出操作）
  *   'tray' 后台常驻：窗口隐藏，托盘继续运行并按时提醒
  *   'quit' 彻底退出：结束进程
- *   'ask'  每次询问：每次关闭都弹选择框
+ *   ''     还没选过：第一次点关闭时询问一次，并把选择记住，之后不再询问
  * ------------------------------------------------------------- */
-const CLOSE_ACTIONS = ['ask', 'tray', 'quit'];
+const CLOSE_ACTIONS = ['tray', 'quit'];
 
 // 统一退出入口：先标记 isQuitting（放行窗口的 close 拦截），再延后退出。
 // 不要在 close 事件处理器内同步调用 app.quit()，否则退出序列会卡住。
@@ -131,12 +131,13 @@ function quitApp() {
   setImmediate(() => app.quit());
 }
 
+// 返回 'tray' | 'quit' | ''（'' = 第一次、尚未选择）
 function getCloseAction() {
-  const v = store.get('closeAction', 'ask');
-  return CLOSE_ACTIONS.includes(v) ? v : 'ask';
+  const v = store.get('closeAction', '');
+  return CLOSE_ACTIONS.includes(v) ? v : '';
 }
 function setCloseAction(v) {
-  const next = CLOSE_ACTIONS.includes(v) ? v : 'ask';
+  const next = CLOSE_ACTIONS.includes(v) ? v : '';
   store.set('closeAction', next);
   return next;
 }
@@ -151,6 +152,7 @@ async function handleCloseRequest() {
   if (closeAsking) return;             // 询问框已弹出：忽略重复触发
   closeAsking = true;
 
+  // 只在「还没选过」时询问这一次；选择会被记住，以后直接按它执行
   try {
     const r = await dialog.showMessageBox(mainWindow, {
       type: 'question',
@@ -162,12 +164,12 @@ async function handleCloseRequest() {
       message: '关闭窗口后要如何处理？',
       detail: '后台常驻：窗口隐藏，程序继续在系统托盘中运行并按时提醒。\n' +
               '彻底退出：结束程序进程，不再接收提醒。\n\n' +
-              '想让程序按固定方式直接执行、不再询问，可在「设置 → 退出操作」中选择。'
+              '这次的选择会被记住，以后不再询问；想改可在「设置 → 退出操作」里切换。'
     });
 
-    if (r.response === 0) { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide(); }
-    else if (r.response === 1) quitApp();
-    // r.response === 2（取消）：保持窗口打开
+    if (r.response === 0) { store.set('closeAction', 'tray'); if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide(); }
+    else if (r.response === 1) { store.set('closeAction', 'quit'); quitApp(); }
+    // r.response === 2（取消）：保持窗口打开，下次关闭时再问
   } finally {
     closeAsking = false;
   }

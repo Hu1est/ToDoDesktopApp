@@ -688,16 +688,21 @@ function openSettings() {
   snapshotSettings();   // 记录快照，用于判断是否有未保存更改
   markDirtyUI();
 }
-/* 退出操作：设置里直接选择，选中即写入主进程（无需保存） */
-const CLOSE_ACTION_LABEL = { ask:'每次询问', tray:'后台常驻', quit:'彻底退出' };
+/* 退出操作：设置里直接选择，选中即写入主进程（无需保存）
+   还没选过（第一次点关闭才会询问一次）时两个选项都不高亮，并给出提示。 */
+const CLOSE_ACTION_LABEL = { tray:'后台常驻', quit:'彻底退出' };
+const CLOSE_ACTION_UNSET_HINT = '还没设置：第一次关闭窗口时会询问一次，选择会被记住，之后不再询问';
+const CLOSE_ACTION_HINT = '关闭窗口时执行，选好即生效';
 function renderCloseActionUI(current) {
   const paint = v => {
-    const cur = CLOSE_ACTION_LABEL[v] ? v : 'ask';
+    const cur = CLOSE_ACTION_LABEL[v] ? v : '';
     document.querySelectorAll('#closeActionSeg .seg-btn')
       .forEach(b => b.classList.toggle('active', b.dataset.act === cur));
+    const hint = $('closeActionHint');
+    if (hint) hint.textContent = cur ? CLOSE_ACTION_HINT : CLOSE_ACTION_UNSET_HINT;
   };
   if (current) { paint(current); return; }
-  window.todoAPI.getCloseAction().then(paint).catch(() => paint('ask'));
+  window.todoAPI.getCloseAction().then(paint).catch(() => paint(''));
 }
 function closeSettings(){ $('settingsModal').hidden = true; settingsSnapshot = null; }
 function saveSettings() {
@@ -780,11 +785,11 @@ function bindEvents() {
     el.addEventListener('change', markDirtyUI);
     el.addEventListener('input', markDirtyUI);
   });
-  // 退出操作：直接选择，选中即生效
+  // 退出操作：直接选择，选中即生效（选定后关闭窗口不再询问）
   document.querySelectorAll('#closeActionSeg .seg-btn').forEach(b => b.addEventListener('click', () => {
     window.todoAPI.setCloseAction(b.dataset.act).then(v => {
       renderCloseActionUI(v);
-      toast('退出操作：' + (CLOSE_ACTION_LABEL[v] || CLOSE_ACTION_LABEL.ask));
+      toast('关闭窗口时：' + (CLOSE_ACTION_LABEL[v] || '') + (v ? '，不再询问' : ''));
     });
   }));
   $('trayBtn').addEventListener('click', () => window.todoAPI.minimizeToTray());
