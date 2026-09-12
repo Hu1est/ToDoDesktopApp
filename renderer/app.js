@@ -84,7 +84,6 @@ let state = {
   view:'all', prio:'', cat:'', search:''
 };
 let editingId = null;
-let firedReminders = new Set();
 
 const $ = id => document.getElementById(id);
 
@@ -372,7 +371,6 @@ function openStylePicker() { hideFormCard(); closeSettings(); renderStylePicker(
 function closeStylePicker() { $('styleModal').hidden = true; }
 function applyStyle() {
   state.settings.userType = pendingStyle;
-  firedReminders.clear();
   saveData(); renderAll(); updateNotifyHint(); renderStylePicker();
   closeStylePicker();
   toast('已切换为「' + USER_TYPES[pendingStyle].name + '」风格');
@@ -552,26 +550,17 @@ function notify(title, body) {
   if (state.settings.sound) soundPing();
 }
 
-/* ---------- 提醒调度 ---------- */
-function scheduleCheck() {
-  const now = Date.now();
-  const cfg = USER_TYPES[state.settings.userType] || USER_TYPES.organized;
-  const leadMs = state.settings.leadMin * 60e3;
-  state.todos.forEach(t => {
-    if (t.done || !t.notify) return;
-    const due = new Date(t.due).getTime();
-    if (due <= now) return;
-    cfg.stages.forEach(stage => {
-      const point = due - stage*3600e3;
-      if (point <= now && now <= point + leadMs) {
-        const key = t.id+'-'+stage;
-        if (!firedReminders.has(key)) {
-          firedReminders.add(key);
-          notify('任务即将截止', '「'+t.title+'」还有 '+remainText(stage)+'到期（'+new Date(t.due).toLocaleString()+'）');
-        }
-      }
+/* ---------- 提醒（由主进程调度后推送） ----------
+   调度放在主进程：隐藏窗口里的渲染进程定时器会被节流，不可靠。
+   主进程已经负责灵动岛推送，这里只做应用内 toast 与声音。 */
+function bindReminders() {
+  try {
+    window.todoAPI.onReminder((msg) => {
+      if (!msg) return;
+      try { toast(msg.title + '\n' + msg.body, '', 5200); } catch (err) {}
+      if (state.settings.sound) soundPing();
     });
-  });
+  } catch (e) {}
 }
 
 /* ---------- 视图 & 全部渲染 ---------- */
@@ -644,7 +633,6 @@ function closeSettings(){ $('settingsModal').hidden = true; settingsSnapshot = n
 function saveSettings() {
   state.settings.sound = $('setSound').checked;
   state.settings.leadMin = Math.max(1, parseInt($('setLead').value) || 10);
-  firedReminders.clear();
   saveData(); renderAll(); updateNotifyHint();
   closeSettings(); toast('设置已保存');
 }
@@ -867,6 +855,7 @@ async function init() {
   bindVersion();
   bindThemeSeg();
   bindSystemTheme();
+  bindReminders();
   applyTheme();
   renderThemeUI();   // 让设置里的主题色色板一开始就是就绪状态
   renderCloseActionUI();
@@ -875,8 +864,6 @@ async function init() {
   // 表单卡片默认隐藏，仅点击“新建任务”后出现
   setFormDefaults();
   hideFormCard();
-  scheduleCheck();
-  setInterval(scheduleCheck, 30000);
   setTimeout(hideSplash, 350); // 首屏渲染完成后淡出加载遮罩
 }
 document.addEventListener('DOMContentLoaded', init);

@@ -2,8 +2,9 @@
  * 智能待办 · Electron 主进程
  * 职责：主窗口与灵动岛悬浮窗、系统托盘常驻、关闭行为、开机自启、单实例锁、数据持久化
  */
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell, nativeTheme, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell, nativeTheme, screen, powerMonitor } = require('electron');
 const { execFileSync } = require('child_process');
+const { dueReminders, summarize } = require('./reminder');
 const path = require('path');
 const fs = require('fs');
 
@@ -49,6 +50,7 @@ if (!gotLock) {
     if (store.get('floatEnabled', true)) showFloatWindow();
     // 系统深浅色变化时推送给渲染进程（比渲染进程里的 matchMedia change 事件可靠）
     nativeTheme.on('updated', broadcastSystemTheme);
+    startReminderEngine();
   });
 }
 
@@ -284,9 +286,9 @@ function showFloatWindow() { if (!floatWindow || floatWindow.isDestroyed()) crea
 function hideFloatWindow() { if (dragState) stopFloatDrag(); if (floatWindow && !floatWindow.isDestroyed()) floatWindow.hide(); }
 function toggleFloatWindow() { if (floatWindow && floatWindow.isVisible()) hideFloatWindow(); else showFloatWindow(); }
 // 提醒联动：把提醒推给悬浮窗（形态保持不变）。
-// 悬浮窗被用户关闭时不强行唤起，避免弹回一个已被关掉的窗口。
+// 悬浮窗被用户关闭时不强行唤起；窗口还没加载完也不推（避免事件丢失）。
 function floatNotify(title, body) {
-  if (!floatWindow || floatWindow.isDestroyed() || !floatWindow.isVisible()) return false;
+  if (!floatWindow || floatWindow.isDestroyed() || !floatWindow.isVisible() || floatWindow.webContents.isLoading()) return false;
   floatWindow.webContents.send('float-notify', { title, body });
   return true;
 }
@@ -382,6 +384,51 @@ function setLogin(enabled) {
   return { enabled: getLogin(), fixedFile: installExe(), fixedExists: fixedCopyExists(), message };
 }
 
+/* -------------------------------------------------------------
+ * 提醒调度（主进程）
+ * 为什么放在主进程：隐藏的渲染进程窗口里定时器会被 Chromium 节流，
+ * 对「按时提醒」这种核心功能不可靠；主进程的定时器不受影响。
+ * 计算规则在 reminder.js（纯逻辑，可被 test/reminder.test.js 直接单测），
+ * 这里只负责触发时机、持久化与推送。
+ * ------------------------------------------------------------- */
+const REMIND_TICK = 30000;      // 常规检查间隔（毫秒）
+let remindTimer = null;
+
+function startReminderEngine() {
+  // 首屏就绪后先做一次「补发」检查：应用没运行期间错过的提醒在这里补上
+  if (mainWindow) mainWindow.webContents.once('did-finish-load', () => setTimeout(catchUpReminders, 500));
+  clearInterval(remindTimer);
+  remindTimer = setInterval(checkReminders, REMIND_TICK);
+  // 休眠唤醒 / 解锁后立刻补算（这段时间定时器不会走）
+  try {
+    powerMonitor.on('resume', catchUpReminders);
+    powerMonitor.on('unlock-screen', catchUpReminders);
+  } catch (e) { /* 平台不支持时忽略 */ }
+}
+
+// 窗口尚未加载完成时先不检查：否则推送会丢失，而提醒点已被记成「已触发」
+function windowsReady() {
+  return mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isLoading();
+}
+
+function checkReminders(catchUp) {
+  if (!windowsReady()) return;
+  const now = Date.now();
+  const before = store.get('fired', {}) || {};
+  const res = dueReminders(store.get('todos', []), store.get('settings', {}), before, now, { catchUp: catchUp });
+  // 只有记录真的变了才写盘，避免每 30 秒无谓地写一次文件
+  if (JSON.stringify(res.fired) !== JSON.stringify(before)) store.set('fired', res.fired);
+  const msg = summarize(res.hits);
+  if (msg) dispatchReminder(msg);
+}
+function catchUpReminders() { checkReminders(true); }
+
+function dispatchReminder(msg) {
+  console.log('[提醒] ' + msg.title + ' — ' + msg.body.replace(/\n/g, ' / '));
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('reminder', msg);
+  floatNotify(msg.title, msg.body);
+}
+
 /* ---------- IPC 通信 ---------- */
 function registerIpc() {
   // 应用内提醒（不使用系统级通知）：联动灵动岛横幅 + 渲染进程 toast
@@ -398,6 +445,7 @@ function registerIpc() {
     if (data.settings !== undefined) store.set('settings', data.settings);
     // 数据变化后主动通知悬浮窗刷新（胶囊文字与主窗口保持一致）
     if (floatWindow && !floatWindow.isDestroyed()) floatWindow.webContents.send('data-changed');
+    checkReminders(true);      // 任务/设置刚改过，按「补发」口径复核一次提醒点
     return true;
   });
 

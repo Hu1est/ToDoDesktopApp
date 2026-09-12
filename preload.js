@@ -64,5 +64,11 @@ contextBridge.exposeInMainWorld('todoAPI', {
     const handler = () => callback();
     ipcRenderer.on('data-changed', handler);
     return () => ipcRenderer.removeListener('data-changed', handler);
+  },
+  // 主进程调度触发的提醒（渲染进程只负责 toast 与声音，灵动岛由主进程推送）
+  onReminder: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on('reminder', handler);
+    return () => ipcRenderer.removeListener('reminder', handler);
   }
 });

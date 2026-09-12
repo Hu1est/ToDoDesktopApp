@@ -7,6 +7,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node test/reminder.test.js",
     "dist": "electron-builder --win portable",
     "dist:portable": "electron-builder --win portable",
     "dist:installer": "electron-builder --win nsis"
@@ -23,6 +24,7 @@
     },
     "files": [
       "main.js",
+      "reminder.js",
       "preload.js",
       "renderer/**/*",
       "assets/**/*"
