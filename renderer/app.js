@@ -76,7 +76,8 @@ function remainText(h) {
 /* 会被持久化的设置项；历史版本遗留字段在载入时由 normalizeSettings() 剔除 */
 const DEFAULT_SETTINGS = {
   userType:'organized', leadMin:10, sound:true,
-  categories: DEFAULT_CATS.slice(), theme:'system', accent:'indigo'
+  categories: DEFAULT_CATS.slice(), theme:'system', accent:'indigo',
+  demoHint: true          // 是否还显示「示例任务」新手提示（用户关掉后不再出现）
 };
 let state = {
   todos: [],
@@ -113,6 +114,7 @@ function normalizeSettings(raw) {
   const lead = parseInt(src.leadMin, 10);
   out.leadMin = Number.isFinite(lead) ? Math.min(1440, Math.max(1, lead)) : DEFAULT_SETTINGS.leadMin;
   out.sound = src.sound !== false;
+  out.demoHint = src.demoHint !== false;      // 默认显示；用户关掉后保持关闭
   if (['system', 'light', 'dark'].includes(src.theme)) out.theme = src.theme;
   if (ACCENTS[src.accent]) out.accent = src.accent;
   if (Array.isArray(src.categories)) {
@@ -147,19 +149,44 @@ async function saveData() {
 }
 
 /* ---------- 示例数据（首次启动）
-   给新用户一份可直接看到效果的样例；这些是「示例」而不是用户自己的任务，
-   因此默认关闭智能提醒（notify:false），避免刚打开就弹出不相关的提醒。 */
+   给新用户一份可直接看到效果的样例，任务带 demo 标记、默认关闭智能提醒
+   （避免刚打开就弹出与用户无关的提醒），并在主区顶部显示一次性说明。 */
 function seed() {
   if (state.todos.length) return;
   const day = 864e5, now = Date.now();
   state.todos = [
-    { id:uid(), title:'阅读 React 文档', desc:'学习最新的 React 特性并记录笔记', due:new Date(now+2*day).toISOString(), prio:'medium', cat:'study', tags:['学习','React'], done:false, notify:false, created:Date.now() },
-    { id:uid(), title:'提交周报', desc:'整理本周工作内容并提交给上级', due:new Date(now+day).toISOString(), prio:'high', cat:'work', tags:['工作','报告'], done:false, notify:false, created:Date.now() },
-    { id:uid(), title:'购买日用品', desc:'补充生活必需品', due:new Date(now+3*day).toISOString(), prio:'low', cat:'shopping', tags:['购物'], done:false, notify:false, created:Date.now() },
-    { id:uid(), title:'健身 30 分钟', desc:'完成今日锻炼计划', due:new Date(now+4*3600e3).toISOString(), prio:'medium', cat:'health', tags:['运动'], done:false, notify:false, created:Date.now() },
-    { id:uid(), title:'整理桌面', desc:'清理工作台和文件', due:new Date(now-day).toISOString(), prio:'low', cat:'life', tags:['整理'], done:true, notify:false, created:Date.now() }
+    { id:uid(), title:'阅读 React 文档', desc:'学习最新的 React 特性并记录笔记', due:new Date(now+2*day).toISOString(), prio:'medium', cat:'study', tags:['学习','React'], done:false, notify:false, demo:true, created:Date.now() },
+    { id:uid(), title:'提交周报', desc:'整理本周工作内容并提交给上级', due:new Date(now+day).toISOString(), prio:'high', cat:'work', tags:['工作','报告'], done:false, notify:false, demo:true, created:Date.now() },
+    { id:uid(), title:'购买日用品', desc:'补充生活必需品', due:new Date(now+3*day).toISOString(), prio:'low', cat:'shopping', tags:['购物'], done:false, notify:false, demo:true, created:Date.now() },
+    { id:uid(), title:'健身 30 分钟', desc:'完成今日锻炼计划', due:new Date(now+4*3600e3).toISOString(), prio:'medium', cat:'health', tags:['运动'], done:false, notify:false, demo:true, created:Date.now() },
+    { id:uid(), title:'整理桌面', desc:'清理工作台和文件', due:new Date(now-day).toISOString(), prio:'low', cat:'life', tags:['整理'], done:true, notify:false, demo:true, created:Date.now() }
   ];
   saveData();
+}
+
+/* ---------- 新手提示（只针对示例任务，关掉后不再出现） ---------- */
+function demoCount() { return state.todos.filter(t => t && t.demo).length; }
+function renderDemoHint() {
+  const box = $('demoHint');
+  if (!box) return;
+  const n = demoCount();
+  box.hidden = !(state.settings.demoHint !== false && n > 0);
+  const head = $('demoHeadText');
+  if (head) head.textContent = '这是 ' + n + ' 条示例任务，用来说明效果';
+  const clearBtn = $('demoClearBtn');
+  if (clearBtn) clearBtn.textContent = '清空示例任务（' + n + '）';
+}
+function dismissDemoHint() {
+  state.settings.demoHint = false;
+  saveData(); renderDemoHint();
+}
+async function clearDemoTasks() {
+  const n = state.todos.filter(t => t && t.demo).length;
+  if (!n) return;
+  if (!(await window.todoAPI.confirm('清空 ' + n + ' 条示例任务？', '只删除带「示例」标记的任务，你自己创建的任务不受影响。'))) return;
+  state.todos = state.todos.filter(t => !(t && t.demo));
+  saveData(); renderAll(); renderDemoHint();
+  toast('已清空 ' + n + ' 条示例任务');
 }
 
 /* ---------- 时间基准 ----------
@@ -302,6 +329,7 @@ function renderTasks() {
     const snBadge = sn
       ? '<button class="badge b-snooze" data-action="unsnooze" data-id="'+t.id+'" data-tip="点击取消稍后提醒">稍后 '+snoozeText(sn)+'</button>'
       : '';
+    const demoBadge = t.demo ? '<span class="badge b-demo" data-tip="示例任务，默认不提醒">示例</span>' : '';
     el.innerHTML =
       '<button class="tcheck" data-action="toggle" data-id="'+t.id+'">'+(t.done?icCheck:'')+'</button>' +
       '<div class="tbody">' +
@@ -311,6 +339,7 @@ function renderTasks() {
           '<span class="badge b-priority" style="color:'+prio.c+';background:'+prio.c+'18">'+prio.n+'</span>' +
           '<span class="badge">'+esc(catN)+'</span>' +
           '<span class="badge b-due '+di.cls+'">'+di.text+'</span>' +
+          demoBadge +
           snBadge +
           tagHtml +
         '</div>' +
@@ -527,7 +556,7 @@ function saveTask(e) {
     tags:$('fTags').value.split(/[,，]/).map(x=>x.trim()).filter(Boolean),
     notify:$('fNotify').checked
   };
-  if (editingId) { state.todos = state.todos.map(t => t.id===editingId ? {...t, ...data} : t); toast('任务已更新'); editingId=null; $('formReset').hidden=true; }
+  if (editingId) { state.todos = state.todos.map(t => t.id===editingId ? {...t, ...data, demo:false} : t); toast('任务已更新'); editingId=null; $('formReset').hidden=true; }
   else { state.todos.push({ ...data, id:uid(), done:false, created:Date.now() }); toast('任务已创建'); }
   saveData(); renderAll();
   // 保存后收起表单卡片（下次点击“新建任务”再出现）
@@ -601,7 +630,7 @@ function setView(v) {
   $('viewTitle').textContent = VIEWS[v] || '任务';
   renderTasks();
 }
-function renderAll() { renderStats(); counts(); renderTasks(); renderUserType(); renderCatChips(); }
+function renderAll() { renderStats(); counts(); renderTasks(); renderUserType(); renderCatChips(); renderDemoHint(); }
 
 /* ---------- 设置：未保存更改跟踪 ---------- */
 /* 只有「提醒提前量 / 声音提示」需要点保存；退出操作与主题是即时生效的 */
@@ -786,6 +815,10 @@ function bindTrayActions() {
   });
   // 主进程发来的普通提示（如「已稍后提醒」）
   try { window.todoAPI.onToast((msg) => { if (msg) toast(msg.title + '\n' + msg.body); }); } catch (e) {}
+  // 新手提示：知道了 / 关闭 / 清空示例任务
+  if ($('demoOkBtn')) $('demoOkBtn').addEventListener('click', dismissDemoHint);
+  if ($('demoHintClose')) $('demoHintClose').addEventListener('click', dismissDemoHint);
+  if ($('demoClearBtn')) $('demoClearBtn').addEventListener('click', clearDemoTasks);
   // 稍后提醒记录变化（新增 / 取消 / 到点消费）→ 刷新任务行上的标记
   try {
     window.todoAPI.onSnoozeChanged(async () => {

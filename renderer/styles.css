@@ -144,7 +144,6 @@ body{display:flex;flex-direction:column}
 
 /* ============ 内容区（列表始终占满，表单改为悬浮卡片） ============ */
 .grid{display:grid;grid-template-columns:1fr;gap:1.2rem;align-items:start}
-
 /* “新建任务”卡片：悬浮在窗口顶部 */
 #formCard{
   position:fixed;top:52px;left:50%;transform:translateX(-50%);
@@ -310,6 +309,18 @@ body{display:flex;flex-direction:column}
   background:#0a0c12;color:#e5e7eb;border:1px solid #2c3850;
   box-shadow:0 6px 18px rgba(0,0,0,.3);pointer-events:none;animation:tipIn .12s ease-out}
 @keyframes tipIn{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+
+/* ============ 新手提示（示例任务说明，可关闭） ============ */
+.demo-hint{background:var(--primary-light);border:1px solid var(--primary);border-radius:var(--radius);
+  padding:.85rem 1rem;box-shadow:var(--shadow)}
+.dh-head{display:flex;align-items:center;gap:.5rem;font-size:13px;font-weight:700;color:var(--t)}
+.dh-head svg{color:var(--primary);flex-shrink:0}
+.dh-list{margin:.5rem 0 .7rem;padding-left:1.1rem;display:flex;flex-direction:column;gap:.25rem}
+.dh-list li{font-size:12px;color:var(--t2);line-height:1.5}
+.dh-list b{color:var(--primary)}
+.dh-actions{display:flex;gap:.5rem}
+/* 任务行上的「示例」标记 */
+.b-demo{color:var(--primary);background:var(--primary-light)}
 
 /* ============ 模态框 ============ */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;

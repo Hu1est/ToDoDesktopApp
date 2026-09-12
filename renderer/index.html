@@ -129,6 +129,25 @@
 
     <!-- 内容网格 -->
     <div class="grid" id="contentGrid">
+      <!-- 新手提示：只针对示例任务，可一键清空 / 关掉后不再出现 -->
+      <div class="demo-hint" id="demoHint" hidden>
+        <div class="dh-head">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="12" cy="12" r="10"/><path d="M12 16v-5M12 8h.01"/></svg>
+          <span id="demoHeadText">这是示例任务，用来说明效果</span>
+          <button class="icon-btn" id="demoHintClose" data-tip="不再显示" style="margin-left:auto;width:28px;height:28px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <ul class="dh-list">
+          <li>带「<b>示例</b>」标记的任务默认关闭提醒，改成你自己的内容后即可开启</li>
+          <li>顶部图标依次是：最小化到托盘 · 开机自启 · 悬浮窗 · 设置（悬停有说明）</li>
+          <li>任务到期时会提醒；不想现在处理，可在悬浮窗上点「<b>稍后</b>」推迟 10 分钟 / 1 小时 / 明天</li>
+        </ul>
+        <div class="dh-actions">
+          <button class="btn btn-ghost" id="demoClearBtn">清空示例任务</button>
+          <button class="btn btn-primary" id="demoOkBtn">知道了</button>
+        </div>
+      </div>
       <!-- 任务表单（点击“新建任务”后出现） -->
       <div class="card" id="formCard" hidden>
         <div class="card-title">
