@@ -162,9 +162,9 @@ async function handleCloseRequest() {
       noLink: true,
       title: '关闭窗口',
       message: '关闭窗口后要如何处理？',
-      detail: '后台常驻：窗口隐藏，程序继续在系统托盘中运行并按时提醒。\n' +
+      detail: '后台常驻：窗口隐藏，程序在托盘中继续运行并按时提醒。\n' +
               '彻底退出：结束程序进程，不再接收提醒。\n\n' +
-              '这次的选择会被记住，以后不再询问；想改可在「设置 → 退出操作」里切换。'
+              '选择会被记住，之后不再询问；可在「设置 → 退出操作」中更改。'
     });
 
     if (r.response === 0) { store.set('closeAction', 'tray'); if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide(); }
@@ -483,13 +483,13 @@ function setLogin(enabled) {
     // 开发运行下 process.execPath 是 electron，复制过去会让自启项失效，因此只允许在打包后的程序里开启
     if (!app.isPackaged) {
       return { enabled: getLogin(), fixedFile: installExe(), fixedExists: fixedCopyExists(),
-               message: '开发运行（npm start）无法设置开机自启：当前进程是 Electron 调试宿主，不是程序本体。\n请使用打包后的程序（智能待办-便携版.exe）开启。' };
+               message: '开发运行（npm start）无法设置开机自启，请使用打包后的程序（智能待办-便携版.exe）。' };
     }
     try {
       writeAutostartCopy();
       cleanupLegacyCopy();
-      message = '已启用开机自启。为保持自启稳定，程序把自身复制了一份到数据目录（与数据文件同一位置）：\n' + installExe() +
-                '\n（这份副本是自启所需的，请勿单独删除；如需彻底移除，请先关闭开机自启。）';
+      message = '已开启开机自启。程序会把自身复制一份到数据目录：\n' + installExe() +
+                '\n这份副本用于开机启动，请勿单独删除；如需移除，请先关闭开机自启。';
     } catch (e) { console.error('设置开机自启失败:', e); message = '启用开机自启失败：' + e.message; }
   } else {
     try { execFileSync('reg', ['delete', RUN_KEY, '/v', RUN_NAME, '/f'], { stdio: 'ignore' }); } catch (e) {}
@@ -499,8 +499,8 @@ function setLogin(enabled) {
       if (fixedCopyExists()) { fs.unlinkSync(installExe()); deleted = true; }
     } catch (e) { console.error('删除副本失败:', e); }
     cleanupLegacyCopy();
-    message = '已关闭开机自启' + (deleted ? '，并已删除数据目录下的副本文件。' : '。') +
-              '\n若副本删除失败（程序正在运行中被占用），可稍后手动删除：\n' + installExe();
+    message = '已关闭开机自启' + (deleted ? '，并已删除数据目录下的副本。' : '。') +
+              '\n若副本删除失败（程序运行时被占用），可稍后手动删除：\n' + installExe();
   }
   return { enabled: getLogin(), fixedFile: installExe(), fixedExists: fixedCopyExists(), message };
 }
@@ -575,8 +575,8 @@ function applySnooze(ids, desiredUntil) {
   lastReminderIds = [];
   if (tray) tray.setContextMenu(buildTrayMenu());
   broadcastSnooze();
-  const note = clampedCount ? '（不超过 DDL，截止前 1 分钟提醒）' : '';
-  const body = '已推迟到 ' + whileText(earliest) + note + '，到点会再提醒一次；可在任务行上点「稍后」标记取消';
+  const note = clampedCount ? '（已提前到截止前 1 分钟）' : '';
+  const body = '已推迟到 ' + whileText(earliest) + note + '，到点会再提醒一次；点任务行上的「稍后」标记可取消';
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app-toast', { title: '已稍后提醒', body: body });
   return true;
 }

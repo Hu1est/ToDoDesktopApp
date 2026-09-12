@@ -87,7 +87,7 @@
     <!-- 搜索（固定在侧边栏底部，始终可见） -->
     <div class="search">
       <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input id="searchInput" placeholder="搜索标题、描述或标签...">
+      <input id="searchInput" placeholder="搜索标题、描述或标签">
     </div>
   </aside>
 
@@ -102,7 +102,7 @@
         <button class="icon-btn" id="loginBtn" data-tip="开机自动启动">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v8M12 10L9 7M12 10l3-3"/><path d="M4 12a8 8 0 1 0 16 0"/></svg>
         </button>
-        <button class="icon-btn" id="floatBtn" data-tip="悬浮窗开/关">
+        <button class="icon-btn" id="floatBtn" data-tip="显示或隐藏悬浮窗">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 3L15 15M3 15h12M15 15v6"/></svg>
         </button>
         <button class="icon-btn" id="settingsBtn" data-tip="设置">
@@ -133,15 +133,15 @@
       <div class="demo-hint" id="demoHint" hidden>
         <div class="dh-head">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="12" cy="12" r="10"/><path d="M12 16v-5M12 8h.01"/></svg>
-          <span id="demoHeadText">这是示例任务，用来说明效果</span>
+          <span id="demoHeadText">这 5 条是示例任务，用来说明效果</span>
           <button class="icon-btn" id="demoHintClose" data-tip="不再显示" style="margin-left:auto;width:28px;height:28px">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
         </div>
         <ul class="dh-list">
-          <li>带「<b>示例</b>」标记的任务默认关闭提醒，改成你自己的内容后即可开启</li>
-          <li>顶部图标依次是：最小化到托盘 · 开机自启 · 悬浮窗 · 设置（悬停有说明）</li>
-          <li>任务到期时会提醒；不想现在处理，可在悬浮窗上点「<b>稍后</b>」推迟 10 分钟 / 1 小时 / 明天</li>
+          <li>带「<b>示例</b>」标记的任务默认不提醒，改成自己的内容后可以开启提醒</li>
+          <li>顶部图标依次为：最小化到托盘、开机自启、悬浮窗、设置，鼠标悬停可看说明</li>
+          <li>任务到期时会提醒；暂时不想处理，可在悬浮窗上点「<b>稍后</b>」推迟 10 分钟 / 1 小时 / 明天</li>
         </ul>
         <div class="dh-actions">
           <button class="btn btn-ghost" id="demoClearBtn">清空示例任务</button>
@@ -159,9 +159,9 @@
         </div>
         <form class="form" id="taskForm">
           <div class="row"><label>任务标题 *</label><input id="fTitle" placeholder="要做什么？" required></div>
-          <div class="row"><label>描述</label><textarea id="fDesc" placeholder="补充细节..."></textarea></div>
+          <div class="row"><label>描述</label><textarea id="fDesc" placeholder="补充细节"></textarea></div>
           <div class="inline-2">
-            <div class="row"><label>截止日期 (DDL)</label><input type="date" id="fDue"></div>
+            <div class="row"><label>截止日期</label><input type="date" id="fDue"></div>
             <div class="row"><label>截止时间</label><input type="time" id="fTime"></div>
           </div>
           <div class="row"><label>优先级</label>
@@ -175,8 +175,8 @@
           <div class="row"><label>分类</label>
             <div class="cat-grid" id="catGrid"></div>
           </div>
-          <div class="row"><label>标签 (逗号分隔)</label><input id="fTags" placeholder="如：重要, 项目A"></div>
-          <div class="row"><label class="switch"><input type="checkbox" id="fNotify" checked><span class="track"></span>启用智能提醒</label><div class="hint" id="notifyHint"></div></div>
+          <div class="row"><label>标签（用逗号分隔）</label><input id="fTags" placeholder="如：重要、项目A"></div>
+          <div class="row"><label class="switch"><input type="checkbox" id="fNotify" checked><span class="track"></span>到期提醒</label><div class="hint" id="notifyHint"></div></div>
           <div style="display:flex;gap:.6rem">
             <button type="submit" class="btn btn-primary" style="flex:1;justify-content:center">保存任务</button>
             <button type="button" class="btn btn-ghost" id="formReset" hidden>重置</button>
@@ -208,7 +208,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
           选择你的提醒风格
         </h3>
-        <p>风格决定提醒几次、分别在什么时候提醒你</p>
+        <p>决定提醒几次、分别在什么时候提醒</p>
       </div>
       <button class="icon-btn" id="styleClose" data-tip="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
     </div>
@@ -217,7 +217,7 @@
       <span class="sp-cur" id="styleCur"></span>
       <div class="sp-btns">
         <button class="btn btn-ghost" id="styleCancel">取消</button>
-        <button class="btn btn-primary" id="styleApply">应用此风格</button>
+        <button class="btn btn-primary" id="styleApply">应用</button>
       </div>
     </div>
   </div>
@@ -246,12 +246,12 @@
           深色
         </button>
       </div>
-      <div class="hint">跟随系统时，随系统深浅色实时切换</div>
+      <div class="hint">跟随系统时，随 Windows 深浅色实时切换</div>
     </div>
     <div class="set-group">
       <label>主题色</label>
       <div class="accents" id="accentRow"></div>
-      <div class="hint">用于按钮与灵动岛的强调色</div>
+      <div class="hint">按钮与悬浮窗的强调色</div>
     </div>
     <div class="set-group">
       <label>提醒风格</label>
@@ -267,11 +267,11 @@
       </div>
       <div class="hint">调整提醒次数与提醒时间点</div>
     </div>
-    <div class="set-group"><label>提醒提前量 (分钟)</label><input type="number" id="setLead" min="1" max="1440"><div class="hint">到达提醒时间点后的容错窗口</div></div>
+    <div class="set-group"><label>提醒提前量（分钟）</label><input type="number" id="setLead" min="1" max="1440"><div class="hint">提醒时间点过后多久内仍会补提醒</div></div>
     <div class="set-group">
       <label>提醒方式</label>
       <label class="switch"><input type="checkbox" id="setSound" checked><span class="track"></span> 声音提示</label>
-      <div class="hint">以应用内弹窗 + 灵动岛呈现</div>
+      <div class="hint">应用内弹窗 + 悬浮窗横幅，不弹系统通知</div>
     </div>
     <div class="set-group">
       <label>分类管理</label>
@@ -288,7 +288,7 @@
         <button class="seg-btn" data-act="tray">后台常驻</button>
         <button class="seg-btn" data-act="quit">彻底退出</button>
       </div>
-      <div class="hint" id="closeActionHint">关闭窗口时执行，选好即生效</div>
+      <div class="hint" id="closeActionHint">关闭窗口时执行，点选即生效</div>
     </div>
     <div class="set-group">
       <label>数据</label>

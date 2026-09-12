@@ -22,8 +22,8 @@ const VIEWS = { all:'全部任务', today:'今日到期', upcoming:'即将到期
 /* 视图含义（用作自绘 tooltip，让范围一眼可见） */
 const VIEW_TIPS = {
   all:'所有任务',
-  today:'今天 24 点前到期',
-  upcoming:'未来一周内到期（不含今天）',
+  today:'今天之内到期',
+  upcoming:'明天起一周内到期',
   overdue:'已过截止时间且未完成',
   done:'已勾选完成'
 };
@@ -161,8 +161,8 @@ function seed() {
   if (state.initialized || state.todos.length) return;
   const day = 864e5, now = Date.now();
   state.todos = [
-    { id:uid(), title:'阅读 React 文档', desc:'学习最新的 React 特性并记录笔记', due:new Date(now+2*day).toISOString(), prio:'medium', cat:'study', tags:['学习','React'], done:false, notify:false, demo:true, created:Date.now() },
-    { id:uid(), title:'提交周报', desc:'整理本周工作内容并提交给上级', due:new Date(now+day).toISOString(), prio:'high', cat:'work', tags:['工作','报告'], done:false, notify:false, demo:true, created:Date.now() },
+    { id:uid(), title:'阅读 React 文档', desc:'看文档并记录笔记', due:new Date(now+2*day).toISOString(), prio:'medium', cat:'study', tags:['学习','React'], done:false, notify:false, demo:true, created:Date.now() },
+    { id:uid(), title:'提交周报', desc:'整理本周工作内容并提交', due:new Date(now+day).toISOString(), prio:'high', cat:'work', tags:['工作','报告'], done:false, notify:false, demo:true, created:Date.now() },
     { id:uid(), title:'购买日用品', desc:'补充生活必需品', due:new Date(now+3*day).toISOString(), prio:'low', cat:'shopping', tags:['购物'], done:false, notify:false, demo:true, created:Date.now() },
     { id:uid(), title:'健身 30 分钟', desc:'完成今日锻炼计划', due:new Date(now+4*3600e3).toISOString(), prio:'medium', cat:'health', tags:['运动'], done:false, notify:false, demo:true, created:Date.now() },
     { id:uid(), title:'整理桌面', desc:'清理工作台和文件', due:new Date(now-day).toISOString(), prio:'low', cat:'life', tags:['整理'], done:true, notify:false, demo:true, created:Date.now() }
@@ -178,7 +178,7 @@ function renderDemoHint() {
   const n = demoCount();
   box.hidden = !(state.settings.demoHint !== false && n > 0);
   const head = $('demoHeadText');
-  if (head) head.textContent = '这是 ' + n + ' 条示例任务，用来说明效果';
+  if (head) head.textContent = '这 ' + n + ' 条是示例任务，用来说明效果';
   const clearBtn = $('demoClearBtn');
   if (clearBtn) clearBtn.textContent = '清空示例任务（' + n + '）';
 }
@@ -189,7 +189,7 @@ function dismissDemoHint() {
 async function clearDemoTasks() {
   const n = state.todos.filter(t => t && t.demo).length;
   if (!n) return;
-  if (!(await window.todoAPI.confirm('清空 ' + n + ' 条示例任务？', '只删除带「示例」标记的任务，你自己创建的任务不受影响。'))) return;
+  if (!(await window.todoAPI.confirm('清空 ' + n + ' 条示例任务？', '只删除带「示例」标记的任务，自己创建的任务不受影响。'))) return;
   state.todos = state.todos.filter(t => !(t && t.demo));
   saveData(); renderAll(); renderDemoHint();
   toast('已清空 ' + n + ' 条示例任务');
@@ -321,7 +321,7 @@ function renderTasks() {
   $('listCount').textContent = list.length + ' / ' + state.todos.length + ' 项';
   const box = $('taskList'); box.innerHTML = '';
   if (!list.length) {
-    box.innerHTML = '<div class="empty"><div class="empty-ic">' + icEmpty + '</div><p>暂无任务，点击「新建任务」开始吧</p></div>';
+    box.innerHTML = '<div class="empty"><div class="empty-ic">' + icEmpty + '</div><p>暂无任务，点击「新建任务」添加</p></div>';
     return;
   }
   list.forEach(t => {
@@ -664,7 +664,7 @@ function markDirtyUI() {
 async function requestCloseSettings() {
   if (!settingsDirty()) { closeSettings(); return; }
   let r = 'cancel';
-  try { r = await window.todoAPI.confirmSave('设置有未保存的更改', '「提醒提前量 / 声音提示」的改动尚未保存。是否保存后再关闭？'); }
+  try { r = await window.todoAPI.confirmSave('设置有未保存的更改', '「提醒提前量」或「声音提示」的改动尚未保存，是否保存后再关闭？'); }
   catch (e) { r = 'cancel'; }
   if (r === 'save') saveSettings();
   else if (r === 'discard') closeSettings();
@@ -691,8 +691,8 @@ function openSettings() {
 /* 退出操作：设置里直接选择，选中即写入主进程（无需保存）
    还没选过（第一次点关闭才会询问一次）时两个选项都不高亮，并给出提示。 */
 const CLOSE_ACTION_LABEL = { tray:'后台常驻', quit:'彻底退出' };
-const CLOSE_ACTION_UNSET_HINT = '还没设置：第一次关闭窗口时会询问一次，选择会被记住，之后不再询问';
-const CLOSE_ACTION_HINT = '关闭窗口时执行，选好即生效';
+const CLOSE_ACTION_UNSET_HINT = '还没选择：第一次关闭窗口时会询问一次，选择会被记住';
+const CLOSE_ACTION_HINT = '关闭窗口时执行，点选即生效';
 function renderCloseActionUI(current) {
   const paint = v => {
     const cur = CLOSE_ACTION_LABEL[v] ? v : '';
