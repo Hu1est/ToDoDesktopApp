@@ -84,6 +84,7 @@ let state = {
   todos: [],
   settings: { ...DEFAULT_SETTINGS },
   snooze: {},            // 稍后提醒记录：{ 任务id: 恢复时刻 }，由主进程维护
+  initialized: false,    // 数据文件是否已存在（存在就不是首次启动，不再铺示例任务）
   view:'all', prio:'', cat:'', search:''
 };
 let editingId = null;
@@ -132,6 +133,7 @@ async function loadData() {
   try {
     const data = await window.todoAPI.loadData();
     if (data && Array.isArray(data.todos)) state.todos = data.todos;
+    state.initialized = !!(data && data.initialized);   // 数据文件已存在 → 不是首次启动
     state.snooze = (data && data.snooze) || {};
     const raw = data && data.settings;
     const normalized = normalizeSettings(raw);
@@ -149,11 +151,14 @@ async function saveData() {
   catch (error) { console.warn('数据保存失败:', error); }
 }
 
-/* ---------- 示例数据（首次启动）
+/* ---------- 示例数据（只在真正首次启动时生成一次）
    给新用户一份可直接看到效果的样例，任务带 demo 标记、默认关闭智能提醒
-   （避免刚打开就弹出与用户无关的提醒），并在主区顶部显示一次性说明。 */
+   （避免刚打开就弹出与用户无关的提醒），并在主区顶部显示一次性说明。
+   注意：判断依据是「数据文件是否存在」而不是「任务列表是否为空」——
+   否则用户把任务全删掉后，每次启动都会又自动生成 5 条示例任务，
+   看起来就像配置被重置了。 */
 function seed() {
-  if (state.todos.length) return;
+  if (state.initialized || state.todos.length) return;
   const day = 864e5, now = Date.now();
   state.todos = [
     { id:uid(), title:'阅读 React 文档', desc:'学习最新的 React 特性并记录笔记', due:new Date(now+2*day).toISOString(), prio:'medium', cat:'study', tags:['学习','React'], done:false, notify:false, demo:true, created:Date.now() },

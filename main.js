@@ -653,7 +653,9 @@ function registerIpc() {
     const todos = store.get('todos', []);
     const settings = store.get('settings', {});
     const snooze = store.get('snooze', {}) || {};      // 稍后提醒记录（主窗口用于显示/取消）
-    return { todos, settings, snooze };
+    // initialized：数据文件已存在 → 渲染进程据此判断「不是首次启动」，
+    // 于是即便任务被全部删除，也不会再自动生成示例任务
+    return { todos, settings, snooze, initialized: fs.existsSync(dataFile()) };
   });
   ipcMain.handle('data-save', (e, data) => {
     if (data.todos !== undefined) store.set('todos', data.todos);
