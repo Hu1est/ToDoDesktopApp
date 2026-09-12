@@ -40,6 +40,7 @@ try {
 
 /* ---------- 渲染 ---------- */
 const IDLE_MS = 6000;          // 展开后无操作多久自动收回胶囊
+const URGENT_MS = 2 * 3600e3;  // 最近一条在 2 小时内到期 → 胶囊进入「即将到期」强调态
 let expanded = false;
 let idleTimer = null;
 let pillAlertTimer = null;
@@ -107,52 +108,71 @@ async function load() {
     // 同步主题色与深浅色
     lastSettings = (data && data.settings) || {};
     applyFloatTheme(lastSettings);
-    const now = new Date();
-    const ts = new Date(); ts.setHours(0,0,0,0);
-    const te = ts.getTime() + 864e5;
-    const pending = todos.filter(t => !t.done);
-    const today = pending.filter(t => new Date(t.due) >= ts && new Date(t.due) < te);
-    const overdue = pending.filter(t => new Date(t.due) < ts);
 
-    // —— 折叠态胶囊：只显示最要紧的一条 ——
-    let mainTxt, subTxt;
+    const now = Date.now();
+    const ts = new Date(); ts.setHours(0,0,0,0);
+    const t0 = ts.getTime(), t1 = t0 + 864e5;
+    // 未完成任务按到期时间升序：越早到期越靠前，「最要紧的一条」就是第一条
+    const pending = todos.filter(t => !t.done)
+      .map(t => ({ t: t, due: new Date(t.due).getTime() }))
+      .sort((a, b) => a.due - b.due);
+    const overdue = pending.filter(x => x.due < now);              // 已过截止时间（含今天已过点的）
+    const todayLeft = pending.filter(x => x.due >= now && x.due < t1);
+    const later = pending.filter(x => x.due >= t1);
+
+    // —— 折叠态胶囊：按状态给出摘要 ——
+    let st = 'empty', mainTxt = '暂无任务', subTxt = '点击展开';
     if (overdue.length) {
+      const top = overdue[0];
+      st = 'overdue';
       mainTxt = '逾期 ' + overdue.length + ' 项';
-      subTxt = '最急：' + shortTitle(overdue[0].title);
-    } else if (today.length) {
-      const next = today.slice().sort((a,b) => new Date(a.due) - new Date(b.due))[0];
-      mainTxt = '今日 ' + today.length + ' 项';
-      subTxt = shortTitle(next.title);
-    } else if (pending.length) {
-      const next = pending.slice().sort((a,b) => new Date(a.due) - new Date(b.due))[0];
-      const d = new Date(next.due);
+      subTxt = shortTitle(top.t.title) + ' · 超时 ' + overdueText(now - top.due);
+    } else if (todayLeft.length) {
+      const top = todayLeft[0], left = top.due - now;
+      st = left <= URGENT_MS ? 'urgent' : 'today';
+      mainTxt = st === 'urgent'
+        ? (todayLeft.length > 1 ? todayLeft.length + ' 项即将到期' : '即将到期')
+        : '今日 ' + todayLeft.length + ' 项';
+      subTxt = shortTitle(top.t.title) + ' · ' + (left <= 3600e3
+        ? '还有 ' + Math.max(1, Math.round(left / 60000)) + ' 分钟'
+        : hm(new Date(top.due)));
+    } else if (later.length) {
+      const top = later[0];
+      st = 'upcoming';
       mainTxt = '今日无到期';
-      subTxt = '最近 ' + (d.getMonth()+1) + '/' + d.getDate() + ' · ' + shortTitle(next.title);
-    } else {
-      mainTxt = '暂无待办';
-      subTxt = todos.length ? '已全部完成' : '点击展开';
+      subTxt = dueLabel(top.due, t1) + ' · ' + shortTitle(top.t.title);
+    } else if (todos.length) {
+      st = 'done';
+      mainTxt = '已全部完成';
+      subTxt = '共 ' + todos.length + ' 项';
     }
+    const isl = $('island');
+    if (isl) isl.dataset.state = st;          // 状态驱动图标与配色（见 float.css）
     // 提醒文字正在展示时不要覆盖，只更新待恢复的原文（提醒结束后自动回到最新摘要）
     if (pillAlertKeep) pillAlertKeep = { m: mainTxt, s: subTxt };
     else { $('pillMain').textContent = mainTxt; $('pillSub').textContent = subTxt; }
 
-    // —— 展开态列表 ——
+    // —— 展开态列表：逾期在前，其次今天剩余 ——
     const body = $('fBody');
-    if (!today.length && !overdue.length) {
-      body.innerHTML = '<div class="fempty"><p>今日无到期任务</p></div>';
+    const list = overdue.concat(todayLeft).slice(0, 8);
+    if (!list.length) {
+      const empty = pending.length ? '今天没有要处理的任务' : (todos.length ? '全部已完成' : '暂无任务');
+      body.innerHTML = '<div class="fempty"><p>' + empty + '</p></div>';
     } else {
-      const rows = overdue.concat(today).slice(0,8).map(t => {
-        const d = new Date(t.due);
-        const prio = PRIOS[t.prio] || PRIOS.medium;
-        const isOver = d < now;
-        const label = isOver ? '已逾期' : (d.getHours() + ':' + pad(d.getMinutes()));
+      const rows = list.map(x => {
+        const prio = PRIOS[x.t.prio] || PRIOS.medium;
+        const isOver = x.due < now;
+        const left = x.due - now;
+        const label = isOver ? '超时 ' + overdueText(now - x.due)
+                    : left <= 3600e3 ? '还有 ' + Math.max(1, Math.round(left / 60000)) + ' 分钟'
+                    : hm(new Date(x.due));
         return '<div class="ftitem"><span class="fdot" style="background:'+prio.c+'"></span>' +
-          '<div class="tf"><div class="t">'+esc(t.title)+'</div>' +
+          '<div class="tf"><div class="t">'+esc(x.t.title)+'</div>' +
           '<div class="time"'+(isOver?' style="color:#f87171"':'')+'>'+label+'</div></div></div>';
       }).join('');
       body.innerHTML = '<div class="ftoday"><h4>' + (overdue.length ? '逾期 · 今日' : '今日到期') + '</h4>' + rows + '</div>';
     }
-    $('fFoot').innerHTML = '<span>逾期 <b class="fs-num">'+overdue.length+'</b> · 今日 <b class="fs-num">'+today.length+'</b> · 共 '+todos.length+'</span>' +
+    $('fFoot').innerHTML = '<span>逾期 <b class="fs-num">'+overdue.length+'</b> · 今日 <b class="fs-num">'+todayLeft.length+'</b> · 共 '+todos.length+'</span>' +
       '<button id="fRefresh">刷新</button>';
   } catch (e) {
     $('fBody').innerHTML = '<div class="floading">加载失败</div>';
@@ -162,6 +182,21 @@ async function load() {
 function shortTitle(s) {
   const t = String(s || '');
   return t.length > 9 ? t.slice(0,9) + '…' : t;
+}
+/* 时刻 → h:mm */
+function hm(d) { return d.getHours() + ':' + pad(d.getMinutes()); }
+/* 已超时时长：分钟 / 小时 / 天（用于「今日内逾期」这类不足一天的超时） */
+function overdueText(ms) {
+  const min = Math.max(1, Math.floor(ms / 60000));
+  if (min < 60) return min + ' 分钟';
+  const h = Math.floor(min / 60);
+  return h < 24 ? h + ' 小时' : Math.floor(h / 24) + ' 天';
+}
+/* 未来到期时刻：今天显示 h:mm，明天加前缀，更远显示 月/日 h:mm */
+function dueLabel(ms, t1) {
+  const d = new Date(ms);
+  if (ms < t1 + 864e5) return '明天 ' + hm(d);
+  return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hm(d);
 }
 
 /* —— 交互 —— */

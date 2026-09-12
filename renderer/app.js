@@ -237,6 +237,14 @@ function renderStats() {
   $('stOver').textContent = s.over;
 }
 
+/* 已过截止时间多久：不足 1 天用「分钟 / 小时」，避免同一天逾期也显示成「1 天」 */
+function overdueText(ms) {
+  const min = Math.max(1, Math.floor(ms / 60000));
+  if (min < 60) return min + ' 分钟';
+  const h = Math.floor(min / 60);
+  return h < 24 ? h + ' 小时' : Math.floor(h / 24) + ' 天';
+}
+
 /* 返回完整可显示的到期文案（text 已含时间，避免渲染时重复拼接） */
 function dueInfo(t) {
   const d = new Date(t.due), now = new Date(), ts = new Date(); ts.setHours(0,0,0,0);
@@ -244,7 +252,7 @@ function dueInfo(t) {
   const hm = d.getHours() + ':' + pad(d.getMinutes());
   let text, cls;
   if (t.done) { text = '已完成'; cls = 'due-ok'; }
-  else if (diff < 0) { text = '已逾期 ' + Math.max(1, Math.ceil(-diff/864e5)) + ' 天'; cls = 'due-danger'; }
+  else if (diff < 0) { text = '已逾期 ' + overdueText(-diff); cls = 'due-danger'; }
   else if (fmtDate(d) === fmtDate(now)) { text = '今天 ' + hm; cls = 'due-warn'; }
   else if (diffDays < 1) { text = '明天 ' + hm; cls = 'due-warn'; }
   else if (diffDays < 7) { text = Math.round(diffDays) + ' 天后 ' + hm; cls = 'due-ok'; }

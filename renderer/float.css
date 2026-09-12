@@ -61,14 +61,12 @@ button:focus,button:focus-visible{outline:none}
   padding:0 1rem;opacity:1;transition:opacity var(--dur-1) var(--ease);cursor:grab}
 .pill.dragging,.fhead-title.dragging{cursor:grabbing}
 .island.expanded .pill{opacity:0;pointer-events:none}
-/* 蓝色圆形：常态显示对勾，提醒时换成铃铛并叠加线性扫描动画 */
+/* 圆形图标：图标与配色随胶囊状态变化（状态规则见下方，提醒态优先级最高、放在最后） */
 .pill-logo{position:relative;overflow:hidden;width:32px;height:32px;border-radius:50%;
   background:linear-gradient(135deg,var(--primary),var(--primary-dark));
   display:flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0}
 .pill-logo svg{width:17px;height:17px;z-index:2}
-.pill-logo .ic-alert{display:none}
-.island.alerting .pill-logo .ic-normal{display:none}
-.island.alerting .pill-logo .ic-alert{display:block;animation:bellNudge var(--dur-3) var(--ease)}
+.pill-logo .ic-check,.pill-logo .ic-overdue,.pill-logo .ic-urgent,.pill-logo .ic-alert{display:none}
 @keyframes bellNudge{0%,100%{transform:rotate(0)}20%{transform:rotate(-14deg)}40%{transform:rotate(12deg)}60%{transform:rotate(-8deg)}80%{transform:rotate(5deg)}}
 /* 线性（匀速）扫描光带：在圆内自左向右匀速扫过 */
 .pill-logo .pill-sweep{position:absolute;top:0;bottom:0;left:-50%;width:50%;z-index:3;
@@ -90,7 +88,30 @@ button:focus,button:focus-visible{outline:none}
 .island.alerting .pill-info .p-main{font-weight:700;animation:pillTextIn var(--dur-2) var(--ease) both}
 .island.alerting .pill-info .p-sub{animation:pillTextIn var(--dur-2) var(--ease) .06s both}
 @keyframes pillTextIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
-/* 胶囊收到提醒时的强调态（不改变形态、不透明、不加外发光，避免动画中出现半透明观感） */
+/* —— 胶囊状态配色（由 float.js 写入 island[data-state]） ——
+   overdue 逾期 · urgent 即将到期 · today 今日有到期 · upcoming 今日无到期 · done 全部完成 · empty 无任务 */
+.island[data-state="upcoming"] .pill-logo,
+.island[data-state="empty"] .pill-logo{background:linear-gradient(135deg,#64748b,#475569)}
+.island[data-state="done"] .pill-logo{background:linear-gradient(135deg,#22c55e,#16a34a)}
+.island[data-state="done"] .pill-logo .ic-normal{display:none}
+.island[data-state="done"] .pill-logo .ic-check{display:block}
+.island[data-state="overdue"] .pill-logo{background:linear-gradient(135deg,#ef4444,#dc2626)}
+.island[data-state="overdue"] .pill-logo .ic-normal{display:none}
+.island[data-state="overdue"] .pill-logo .ic-overdue{display:block}
+.island[data-state="overdue"]{border-color:color-mix(in srgb,var(--danger) 50%,var(--border))}
+.island[data-state="urgent"] .pill-logo{background:linear-gradient(135deg,#f59e0b,#d97706)}
+.island[data-state="urgent"] .pill-logo .ic-normal{display:none}
+.island[data-state="urgent"] .pill-logo .ic-urgent{display:block}
+.island[data-state="urgent"]{border-color:color-mix(in srgb,var(--warning) 50%,var(--border))}
+
+/* 胶囊收到提醒时的强调态（不改变形态、不透明、不加外发光，避免动画中出现半透明观感）
+   放在状态规则之后：提醒态需要覆盖任意胶囊状态 */
+.island.alerting .pill-logo{background:linear-gradient(135deg,var(--primary),var(--primary-dark))}
+.island.alerting .pill-logo .ic-normal,
+.island.alerting .pill-logo .ic-check,
+.island.alerting .pill-logo .ic-overdue,
+.island.alerting .pill-logo .ic-urgent{display:none}
+.island.alerting .pill-logo .ic-alert{display:block;animation:bellNudge var(--dur-3) var(--ease)}
 .island.alerting{border-color:var(--primary);
   background:linear-gradient(135deg,color-mix(in srgb,var(--primary) 26%,var(--island-bg)),var(--island-bg))}
 body.light .island.alerting{border-color:var(--primary);
