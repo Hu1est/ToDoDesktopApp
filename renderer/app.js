@@ -295,10 +295,13 @@ function renderTasks() {
 }
 
 /* 提醒风格卡片（侧边栏顶部） */
+/* 提醒风格卡片（侧边栏顶部）：副标题保持一行，详细时间点放在「提醒风格」界面与设置入口 */
 function renderUserType() {
-  const ut = state.settings.userType, cfg = USER_TYPES[ut] || USER_TYPES.organized;
+  const cfg = USER_TYPES[state.settings.userType] || USER_TYPES.organized;
   $('styleName').textContent = cfg.name + ' · ' + cfg.short;
-  $('styleDesc').textContent = '截止前提醒 ' + cfg.freq + ' 次（' + cfg.stages.map(stageText).join('、') + '）';
+  $('styleDesc').textContent = cfg.freq > 1
+    ? '提前提醒 ' + cfg.freq + ' 次'
+    : '提前 ' + remainText(cfg.stages[0]) + '提醒';
   renderStyleEntry();
 }
 /* 设置里的「提醒风格」入口条 */
@@ -355,7 +358,7 @@ function updateStyleCur() {
   const p = pendingStyle;
   el.innerHTML = p === cur
     ? '当前风格：<b>' + USER_TYPES[cur].name + '</b>'
-    : '将切换为：<b>' + USER_TYPES[p].name + '</b>（原：' + USER_TYPES[cur].name + '）';
+    : '将切换为：<b>' + USER_TYPES[p].name + '</b>';
 }
 function openStylePicker() { hideFormCard(); closeSettings(); renderStylePicker(); $('styleModal').hidden = false; }
 function closeStylePicker() { $('styleModal').hidden = true; }

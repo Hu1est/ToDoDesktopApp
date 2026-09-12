@@ -358,6 +358,8 @@ function registerIpc() {
   ipcMain.handle('data-save', (e, data) => {
     if (data.todos !== undefined) store.set('todos', data.todos);
     if (data.settings !== undefined) store.set('settings', data.settings);
+    // 数据变化后主动通知悬浮窗刷新（胶囊文字与主窗口保持一致）
+    if (floatWindow && !floatWindow.isDestroyed()) floatWindow.webContents.send('data-changed');
     return true;
   });
 
@@ -435,14 +437,21 @@ function registerIpc() {
       floatWindow.setIgnoreMouseEvents(!!ignore, { forward: true });
     }
   });
-  // 拖动悬浮窗：按增量移动（渲染进程无需知道窗口坐标），实时限位并记住新位置
-  ipcMain.on('float-move-by', (e, dx, dy) => {
-    if (!floatWindow || floatWindow.isDestroyed()) return;
+  // 拖动悬浮窗：渲染进程给出「窗口左上角的绝对目标坐标」（由拖动起点 + 指针位移算出），
+  // 绝不用「累加增量」的方式移动 —— 每次 setPosition 都会取整，累加会不断累积误差导致偏移。
+  ipcMain.handle('float-drag-start', () => {
+    if (!floatWindow || floatWindow.isDestroyed()) return null;
     const [x, y] = floatWindow.getPosition();
-    const p = clampFloatPos(x + (Number(dx) || 0), y + (Number(dy) || 0));
+    return { x, y };
+  });
+  ipcMain.on('float-drag-to', (e, x, y) => {
+    if (!floatWindow || floatWindow.isDestroyed()) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const p = clampFloatPos(x, y);
     floatWindow.setPosition(p.x, p.y);
     scheduleFloatPosSave();
   });
+  ipcMain.on('float-drag-end', () => { if (floatPosTimer) saveFloatPos(); });
 
   // 退出操作（设置 → 退出操作，直接选择）
   ipcMain.handle('close-action-get', () => getCloseAction());

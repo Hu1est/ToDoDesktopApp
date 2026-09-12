@@ -132,8 +132,9 @@ async function load() {
       mainTxt = '暂无待办';
       subTxt = todos.length ? '已全部完成' : '点击展开';
     }
-    $('pillMain').textContent = mainTxt;
-    $('pillSub').textContent = subTxt;
+    // 提醒文字正在展示时不要覆盖，只更新待恢复的原文（提醒结束后自动回到最新摘要）
+    if (pillAlertKeep) pillAlertKeep = { m: mainTxt, s: subTxt };
+    else { $('pillMain').textContent = mainTxt; $('pillSub').textContent = subTxt; }
 
     // —— 展开态列表 ——
     const body = $('fBody');
@@ -203,8 +204,10 @@ island.addEventListener('wheel', touch, { passive: true });
 island.addEventListener('keydown', touch);
 
 /* —— 拖动 / 点击 ——
-   按住药丸（或卡片标题区）可把悬浮窗拖到任意位置：主进程按增量移动窗口、
-   实时限制在屏幕工作区内，并记住位置。位移小于阈值时视为点击 → 展开。 */
+   按住药丸（或卡片标题区）可把悬浮窗拖到任意位置。
+   位置用「拖动起点的窗口坐标 + 指针总位移」算出绝对坐标后交给主进程，
+   不做增量累加：setPosition 每次都会取整，累加会持续累积误差、越拖越偏。
+   位移小于阈值时视为点击 → 展开。 */
 const DRAG_MIN = 3;
 let drag = null;
 const handles = [$('island').querySelector('.pill'), document.querySelector('.fhead-title')].filter(Boolean);
@@ -215,26 +218,31 @@ function endDrag(e, allowClick) {
   drag = null;
   handles.forEach(h => h.classList.remove('dragging'));
   try { if (e) e.target.releasePointerCapture(e.pointerId); } catch (err) {}
+  window.todoAPI.floatDragEnd();
   if (!moved && allowClick) { setExpanded(true); armIdle(); }
 }
 
 handles.forEach(h => {
   h.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
-    drag = { id: e.pointerId, x: e.screenX, y: e.screenY, moved: false };
+    drag = { id: e.pointerId, sx: e.screenX, sy: e.screenY, ox: null, oy: null, moved: false };
     h.classList.add('dragging');
     try { h.setPointerCapture(e.pointerId); } catch (err) {}
+    // 起点坐标异步取回；取回前不移动窗口，取回后按绝对坐标补上（不会丢位移）
+    window.todoAPI.floatDragStart().then(p => {
+      if (drag && drag.id === e.pointerId && p) { drag.ox = p.x; drag.oy = p.y; }
+    });
   });
   h.addEventListener('pointermove', (e) => {
     if (!drag || e.pointerId !== drag.id) return;
-    const dx = e.screenX - drag.x, dy = e.screenY - drag.y;
+    const dx = e.screenX - drag.sx, dy = e.screenY - drag.sy;
     if (!drag.moved) {
       if (Math.abs(dx) + Math.abs(dy) < DRAG_MIN) return;   // 抖动：仍按点击处理
       drag.moved = true;
       setIgnore(false);
     }
-    window.todoAPI.floatMoveBy(dx, dy);
-    drag.x = e.screenX; drag.y = e.screenY;
+    if (drag.ox === null) return;
+    window.todoAPI.floatDragTo(drag.ox + dx, drag.oy + dy);
     touch();
   });
   h.addEventListener('pointerup', (e) => endDrag(e, true));
@@ -257,6 +265,13 @@ $('fFoot').addEventListener('click', (e) => { if (e.target.id === 'fRefresh') { 
 /* 主进程推送的提醒（保持当前形态，不强行展开） */
 window.todoAPI.onFloatNotify((n) => {
   if (n) showNotify(n.title, n.body);
+});
+
+/* 主窗口保存数据后主动同步：胶囊文字与列表跟着更新（短暂合并，避免连续写入时重复渲染） */
+let syncTimer = null;
+window.todoAPI.onDataChanged(() => {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(load, 150);
 });
 
 load();

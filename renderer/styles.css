@@ -77,7 +77,8 @@ body{display:flex;flex-direction:column}
 .style-txt{flex:1;min-width:0}
 .style-label{font-size:10.5px;font-weight:600;color:var(--t3);letter-spacing:.03em}
 .style-name{font-size:13.5px;font-weight:700;color:var(--t);margin-top:1px}
-.style-desc{font-size:10.5px;color:var(--t2);margin-top:1px;line-height:1.35}
+.style-desc{font-size:10.5px;color:var(--t2);margin-top:1px;line-height:1.35;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .style-arrow{width:14px;height:14px;color:var(--t3);flex-shrink:0}
 
 /* ============ 侧边栏导航 ============ */

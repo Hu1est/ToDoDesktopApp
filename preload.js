@@ -41,7 +41,9 @@ contextBridge.exposeInMainWorld('todoAPI', {
   floatShow: () => ipcRenderer.invoke('float-show'),
   floatToggle: () => ipcRenderer.send('float-toggle'),
   floatSetIgnore: (ignore) => ipcRenderer.send('float-set-ignore', ignore),
-  floatMoveBy: (dx, dy) => ipcRenderer.send('float-move-by', dx, dy),
+  floatDragStart: () => ipcRenderer.invoke('float-drag-start'),
+  floatDragTo: (x, y) => ipcRenderer.send('float-drag-to', x, y),
+  floatDragEnd: () => ipcRenderer.send('float-drag-end'),
 
   /* ---------- 主进程 → 渲染进程 ---------- */
   onFloatNotify: (callback) => {
@@ -58,5 +60,10 @@ contextBridge.exposeInMainWorld('todoAPI', {
     const handler = (event, payload) => callback(payload);
     ipcRenderer.on('system-theme', handler);
     return () => ipcRenderer.removeListener('system-theme', handler);
+  },
+  onDataChanged: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('data-changed', handler);
+    return () => ipcRenderer.removeListener('data-changed', handler);
   }
 });
