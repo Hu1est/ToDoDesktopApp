@@ -53,6 +53,7 @@ if (!gotLock) {
     nativeTheme.on('updated', broadcastSystemTheme);
     startReminderEngine();
     registerShortcuts();
+    syncAutostart();             // 同步自启副本位置（含旧位置残留清理）
   });
 }
 
@@ -287,6 +288,53 @@ function createFloatWindow() {
 function showFloatWindow() { if (!floatWindow || floatWindow.isDestroyed()) createFloatWindow(); floatWindow.show(); }
 function hideFloatWindow() { if (dragState) stopFloatDrag(); if (floatWindow && !floatWindow.isDestroyed()) floatWindow.hide(); }
 function toggleFloatWindow() { if (floatWindow && floatWindow.isVisible()) hideFloatWindow(); else showFloatWindow(); }
+// 悬浮窗置顶开关（卡片上的图钉按钮与右键菜单共用）；状态回推渲染进程，保证图钉样式同步
+function setFloatOnTop(on) {
+  if (!floatWindow || floatWindow.isDestroyed()) return false;
+  floatWindow.setAlwaysOnTop(!!on, 'floating');
+  if (!floatWindow.isDestroyed()) floatWindow.webContents.send('float-pin', !!on);
+  return !!on;
+}
+
+/* ---------- 悬浮窗右键菜单 ----------
+ * 用主进程原生菜单：与托盘菜单同源，右键胶囊/卡片就能完成常用操作，
+ * 不必先打开主窗口。会点稍后提醒时用的是主进程记录的最近一次提醒任务。 */
+function buildFloatMenu() {
+  return Menu.buildFromTemplate([
+    { label: '打开主界面', click: showMainWindow },
+    { label: '新建任务（' + NEW_TASK_ACCELERATOR.replace('CommandOrControl', 'Ctrl') + '）', click: () => { showMainWindow(); sendAction('new-task'); } },
+    { label: '设置', click: () => { showMainWindow(); sendAction('settings'); } },
+    { type: 'separator' },
+    {
+      label: '稍后提醒',
+      enabled: lastReminderIds.length > 0,
+      submenu: ['10m', '1h', 'tomorrow'].map(kind => ({
+        label: snoozeLabel(kind),
+        click: () => applySnooze(lastReminderIds, snoozeTarget(kind))
+      }))
+    },
+    {
+      label: '取消稍后提醒（' + snoozeCount() + ' 项）',
+      visible: snoozeCount() > 0,
+      click: () => {
+        const n = cancelSnooze(null);
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app-toast', { title: '已取消稍后提醒', body: '共取消 ' + n + ' 项' });
+      }
+    },
+    { type: 'separator' },
+    {
+      label: '窗口置顶',
+      type: 'checkbox',
+      checked: !!(floatWindow && !floatWindow.isDestroyed() && floatWindow.isAlwaysOnTop()),
+      click: (item) => setFloatOnTop(item.checked)
+    },
+    { label: '隐藏悬浮窗', click: () => { hideFloatWindow(); store.set('floatEnabled', false); } }
+  ]);
+}
+function popupFloatMenu() {
+  if (!floatWindow || floatWindow.isDestroyed()) return;
+  buildFloatMenu().popup({ window: floatWindow });
+}
 // 提醒联动：把提醒推给悬浮窗（形态保持不变）。
 // 悬浮窗被用户关闭时不强行唤起；窗口还没加载完也不推（避免事件丢失）。
 function floatNotify(title, body, ids) {
@@ -361,42 +409,96 @@ function showMainWindow() {
 /* -------------------------------------------------------------
  * 开机自启（避免便携版自解压到 %TEMP% 的问题）
  * 便携版每次运行都会解压到临时目录，直接把 Run 键指向该路径重启即失效。
- * 因此：先把便携 exe 复制到固定目录 %APPDATA%\SmartTodoDesktop\，
- * 再让注册表 Run 键指向这份固定副本。
+ * 因此：把当前 exe 复制一份到「数据目录」（与 todo-data.json 同一目录），
+ * 再让注册表 Run 键指向这份副本 —— 程序相关的文件都集中在一处，便于清理与备份。
  * ------------------------------------------------------------- */
 const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 const RUN_NAME = 'SmartTodoDesktop';
+const COPY_NAME = '智能待办.exe';
 
-function installDir() { return path.join(app.getPath('appData'), 'SmartTodoDesktop'); }
-function installExe() { return path.join(installDir(), '智能待办.exe'); }
+function dataDir() { return app.getPath('userData'); }
+function installExe() { return path.join(dataDir(), COPY_NAME); }
+// 旧版本把副本放在 %APPDATA%\SmartTodoDesktop\，启动时自动迁移到数据目录
+function legacyExe() { return path.join(app.getPath('appData'), 'SmartTodoDesktop', COPY_NAME); }
 
 // 查询开机自启状态（读注册表）
 function getLogin() {
   try { execFileSync('reg', ['query', RUN_KEY, '/v', RUN_NAME], { stdio: 'ignore' }); return true; }
   catch (e) { return false; }
 }
-// 固定副本是否存在
+// 副本是否存在
 function fixedCopyExists() { return fs.existsSync(installExe()); }
+// 副本是否与当前 exe 不一致（不存在 / 大小不同 → 需要重新复制）
+function copyStale() {
+  try {
+    const target = installExe();
+    if (!fs.existsSync(target)) return true;
+    return fs.statSync(target).size !== fs.statSync(process.execPath).size;
+  } catch (e) { return false; }
+}
+// 把当前 exe 复制到数据目录，并让注册表指向它
+function writeAutostartCopy() {
+  fs.mkdirSync(dataDir(), { recursive: true });
+  fs.copyFileSync(process.execPath, installExe());
+  execFileSync('reg', ['add', RUN_KEY, '/v', RUN_NAME, '/t', 'REG_SZ', '/d', installExe(), '/f'], { stdio: 'ignore' });
+}
+// 清掉旧位置（%APPDATA%\SmartTodoDesktop）的副本：若当前正是从那里运行，则跳过（文件被占用）
+function cleanupLegacyCopy() {
+  const old = legacyExe();
+  try {
+    if (!fs.existsSync(old) || path.resolve(old) === path.resolve(process.execPath)) return;
+    fs.unlinkSync(old);
+    try { fs.rmdirSync(path.dirname(old)); } catch (e) {}   // 目录为空才删得掉
+  } catch (e) { console.error('清理旧副本失败:', e); }
+}
 
-// 设置开机自启：启用→复制固定副本并写注册表；禁用→删除注册项并删除固定副本
+/**
+ * 启动时同步自启状态
+ * 自启开启：老版本副本迁移到数据目录、副本被误删后自愈、程序更新后副本跟随更新
+ * 自启关闭：清掉旧位置的残留副本（旧版本留下的，体积很大且已无用途）
+ * 开发运行（npm start）时 process.execPath 是 electron，不能拿它当副本，直接跳过
+ */
+function syncAutostart() {
+  if (!app.isPackaged) return;
+  if (!getLogin()) { cleanupLegacyCopy(); return; }
+  const runningFromCopy = path.resolve(process.execPath) === path.resolve(installExe());
+  if (!runningFromCopy && copyStale()) {
+    try { fs.copyFileSync(process.execPath, installExe()); }
+    catch (e) { console.log('[自启] 更新副本失败（可能被占用）：' + e.message); }
+  }
+  if (path.resolve(installExe()) !== path.resolve(legacyExe())) {
+    try { execFileSync('reg', ['add', RUN_KEY, '/v', RUN_NAME, '/t', 'REG_SZ', '/d', installExe(), '/f'], { stdio: 'ignore' }); }
+    catch (e) { console.log('[自启] 更新注册表失败：' + e.message); }
+    cleanupLegacyCopy();
+  }
+}
+
+// 设置开机自启：启用→复制副本并写注册表；禁用→删除注册项并删除副本
 // 返回 { enabled, fixedFile, fixedExists, message }
 function setLogin(enabled) {
   let message = '';
   if (enabled) {
+    // 开发运行下 process.execPath 是 electron，复制过去会让自启项失效，因此只允许在打包后的程序里开启
+    if (!app.isPackaged) {
+      return { enabled: getLogin(), fixedFile: installExe(), fixedExists: fixedCopyExists(),
+               message: '开发运行（npm start）无法设置开机自启：当前进程是 Electron 调试宿主，不是程序本体。\n请使用打包后的程序（智能待办-便携版.exe）开启。' };
+    }
     try {
-      fs.mkdirSync(installDir(), { recursive: true });
-      fs.copyFileSync(process.execPath, installExe());
-      execFileSync('reg', ['add', RUN_KEY, '/v', RUN_NAME, '/t', 'REG_SZ', '/d', installExe(), '/f'], { stdio: 'ignore' });
-      message = '已启用开机自启。为保持自启稳定，程序已在固定目录生成一份副本：\n' + installExe() + '\n（该副本是便携版运行所需的，请勿删除；如需彻底移除请先关闭自启。）';
+      writeAutostartCopy();
+      cleanupLegacyCopy();
+      message = '已启用开机自启。为保持自启稳定，程序把自身复制了一份到数据目录（与数据文件同一位置）：\n' + installExe() +
+                '\n（这份副本是自启所需的，请勿单独删除；如需彻底移除，请先关闭开机自启。）';
     } catch (e) { console.error('设置开机自启失败:', e); message = '启用开机自启失败：' + e.message; }
   } else {
     try { execFileSync('reg', ['delete', RUN_KEY, '/v', RUN_NAME, '/f'], { stdio: 'ignore' }); } catch (e) {}
-    // 取消自启后删除固定副本，避免残留文件
+    // 取消自启后删除副本，避免残留文件
     let deleted = false;
     try {
       if (fixedCopyExists()) { fs.unlinkSync(installExe()); deleted = true; }
-    } catch (e) { console.error('删除固定副本失败:', e); }
-    message = '已关闭开机自启' + (deleted ? '，并已删除固定目录下的副本文件。' : '。') + '\n若固定副本删除失败（文件被占用），可稍后手动删除：\n' + installExe();
+    } catch (e) { console.error('删除副本失败:', e); }
+    cleanupLegacyCopy();
+    message = '已关闭开机自启' + (deleted ? '，并已删除数据目录下的副本文件。' : '。') +
+              '\n若副本删除失败（程序正在运行中被占用），可稍后手动删除：\n' + installExe();
   }
   return { enabled: getLogin(), fixedFile: installExe(), fixedExists: fixedCopyExists(), message };
 }
@@ -616,13 +718,11 @@ function registerIpc() {
 
   // 悬浮窗
   ipcMain.handle('float-toggle-pin', () => {
-    if (floatWindow) {
-      const onTop = floatWindow.isAlwaysOnTop();
-      floatWindow.setAlwaysOnTop(!onTop);
-      return !onTop;
-    }
-    return false;
+    if (!floatWindow || floatWindow.isDestroyed()) return false;
+    return setFloatOnTop(!floatWindow.isAlwaysOnTop());
   });
+  // 右键菜单：由主进程弹原生菜单（与托盘菜单同源）
+  ipcMain.on('float-menu', () => popupFloatMenu());
   ipcMain.handle('float-show-main', () => { showMainWindow(); hideFloatWindow(); return true; });
   ipcMain.handle('float-hide', () => { hideFloatWindow(); store.set('floatEnabled', false); return true; });
   ipcMain.handle('float-show', () => { showFloatWindow(); store.set('floatEnabled', true); return true; });

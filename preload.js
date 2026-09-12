@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld('todoAPI', {
   floatSetIgnore: (ignore) => ipcRenderer.send('float-set-ignore', ignore),
   // 拖动：渲染进程只报「开始 / 结束」，位置由主进程按光标坐标计算，避免坐标系不一致
   floatDrag: (phase) => ipcRenderer.invoke('float-drag', phase),
+  // 右键菜单：交给主进程弹原生菜单
+  floatMenu: () => ipcRenderer.send('float-menu'),
 
   /* ---------- 主进程 → 渲染进程 ---------- */
   onFloatNotify: (callback) => {
@@ -86,5 +88,11 @@ contextBridge.exposeInMainWorld('todoAPI', {
     const handler = () => callback();
     ipcRenderer.on('snooze-changed', handler);
     return () => ipcRenderer.removeListener('snooze-changed', handler);
+  },
+  // 悬浮窗置顶状态（右键菜单里改的，同步图钉按钮样式）
+  onFloatPin: (callback) => {
+    const handler = (event, on) => callback(on);
+    ipcRenderer.on('float-pin', handler);
+    return () => ipcRenderer.removeListener('float-pin', handler);
   }
 });

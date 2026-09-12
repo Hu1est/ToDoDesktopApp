@@ -13,8 +13,9 @@
 'use strict';
 
 // 提醒风格 → 提前小时数（与 renderer/app.js 的 USER_TYPES 保持一致）
+// 拖延者刻意多催几次：从提前 7 天一路铺到提前 30 分钟，越接近截止越密
 const STAGES = {
-  procrastinator: [72, 24, 12, 2],
+  procrastinator: [168, 72, 48, 24, 12, 6, 3, 2, 1, 0.5],
   busy: [24, 2],
   organized: [6],
   perfectionist: [168, 72, 24, 6, 1]

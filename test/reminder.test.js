@@ -52,11 +52,11 @@ test('超出容错窗口：常规检查不提醒，补发模式提醒', () => {
 });
 
 test('补发只提醒最近的一个点，更早的点标记为已处理', () => {
-  // 拖延者：72/24/12/2 小时；截止 1 小时后 → 12 小时点与 2 小时点都已过
+  // 拖延者：168/72/48/24/12/6/3/2/1/0.5 小时；截止 1 小时后 → 12 小时点与 1 小时点都已过
   const t = task({ due: new Date(NOW + 1 * H).toISOString() });
   const r = dueReminders([t], settings({ userType: 'procrastinator' }), {}, NOW, { catchUp: true });
   assert.strictEqual(r.hits.length, 1, '一次只发一条');
-  assert.strictEqual(r.hits[0].body, '「任务」还有 1 小时到期', '取最近的（2 小时）点');
+  assert.strictEqual(r.hits[0].body, '「任务」还有 1 小时到期', '取最近的（1 小时）点');
   assert.ok(r.fired['x-12'] && r.fired['x-2'], '两个过点都应标记已处理');
 });
 
@@ -96,6 +96,42 @@ test('未知风格回落到组织者（1 次提醒）', () => {
   const r = dueReminders([t], settings({ userType: '不存在' }), {}, NOW, {});
   assert.strictEqual(r.hits.length, 1);
   assert.deepStrictEqual(STAGES.organized, [6]);
+});
+
+/* ---------- 拖延者：多催几次 ---------- */
+test('拖延者的提醒点最多，且铺到截止前 30 分钟', () => {
+  const counts = Object.keys(STAGES).map(k => STAGES[k].length);
+  assert.strictEqual(Math.max.apply(null, counts), STAGES.procrastinator.length, '应为最密的风格');
+  assert.strictEqual(STAGES.procrastinator.length, 10);
+  assert.ok(STAGES.procrastinator.indexOf(0.5) >= 0, '应包含截止前 30 分钟的点');
+  assert.ok(STAGES.procrastinator.indexOf(168) >= 0, '应包含提前 7 天的点');
+  // 越接近截止越密：最后 24 小时内至少有 5 个提醒点
+  assert.ok(STAGES.procrastinator.filter(h => h <= 24).length >= 5);
+  // 升序（时间线展示依赖这个顺序）
+  const s = STAGES.procrastinator.slice();
+  assert.deepStrictEqual(s, s.slice().sort((a, b) => b - a), '应按「由远及近」排列');
+});
+
+test('拖延者：截止前 30 分钟的点会触发一次', () => {
+  // 截止时间 29 分钟后 → 30 分钟点已过 1 分钟
+  const t = task({ due: new Date(NOW + 29 * 60000).toISOString() });
+  const r = dueReminders([t], settings({ userType: 'procrastinator' }), {}, NOW, {});
+  assert.strictEqual(r.hits.length, 1);
+  assert.strictEqual(r.hits[0].body, '「任务」还有 29 分钟到期');
+  assert.ok(r.fired['x-0.5'] === NOW, '应记录 30 分钟点');
+});
+
+test('拖延者：同一任务不会因为点多而在同一轮重复催', () => {
+  const t = task({ due: new Date(NOW + 1 * H).toISOString() });
+  const r1 = dueReminders([t], settings({ userType: 'procrastinator' }), {}, NOW, {});
+  assert.strictEqual(r1.hits.length, 1, '1 小时点触发一次');
+  // 5 分钟后：已标记的点不再触发，30 分钟点还没到
+  const r2 = dueReminders([t], settings({ userType: 'procrastinator' }), r1.fired, NOW + 5 * 60000, {});
+  assert.strictEqual(r2.hits.length, 0, '不应该重复提醒同一个点');
+  // 到 30 分钟点时再催一次（多催几次的体现）
+  const r3 = dueReminders([t], settings({ userType: 'procrastinator' }), r2.fired, NOW + 31 * 60000, {});
+  assert.strictEqual(r3.hits.length, 1);
+  assert.strictEqual(r3.hits[0].body, '「任务」还有 29 分钟到期');
 });
 
 test('异常数据不会抛错（缺 id / 非法时间 / 空列表）', () => {

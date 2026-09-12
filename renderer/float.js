@@ -336,10 +336,9 @@ handles.forEach(h => {
   h.addEventListener('pointercancel', (e) => endDrag(e, false));
 });
 // 卡片按钮
+function setPinUI(on) { const b = $('fPin'); if (b) b.classList.toggle('pinned', !!on); }
 $('fPin').addEventListener('click', () => {
-  window.todoAPI.floatTogglePin().then(on => {
-    $('fPin').classList.toggle('pinned', !!on);
-  });
+  window.todoAPI.floatTogglePin().then(on => setPinUI(on));
   armIdle();
 });
 $('fMain').addEventListener('click', () => window.todoAPI.floatShowMain());
@@ -347,6 +346,19 @@ $('fClose').addEventListener('click', () => {
   clearReminder();
   setExpanded(false);
 });
+
+/* —— 右键菜单 ——
+   胶囊 / 卡片上右键 → 主进程弹原生菜单（打开主界面、新建任务、设置、
+   稍后提醒、窗口置顶、隐藏悬浮窗），不必先打开主窗口。
+   弹菜单期间暂停「自动收回」，避免菜单还开着卡片先自己收起来。 */
+island.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  closeSnoozeSheet();
+  clearTimeout(idleTimer);
+  try { window.todoAPI.floatMenu(); } catch (err) {}
+});
+// 菜单里切换置顶后，同步卡片上的图钉状态
+try { window.todoAPI.onFloatPin(setPinUI); } catch (e) {}
 /* 稍后提醒：胶囊上的「稍后」入口 + 弹出层 + 卡片横幅上的三个按钮 */
 $('pillSnooze').addEventListener('click', (e) => { e.stopPropagation(); openSnoozeSheet(); });
 document.querySelectorAll('#snoozeSheet .ssbtn').forEach(b => {

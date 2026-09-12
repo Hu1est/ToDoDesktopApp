@@ -13,7 +13,7 @@ const DEFAULT_CATS = [
 const PRIOS = { urgent:{n:'紧急',c:'#ef4444'}, high:{n:'高',c:'#4f6ef7'}, medium:{n:'中',c:'#f59e0b'}, low:{n:'低',c:'#22c55e'} };
 /* 用户类型（提醒风格）→ 提醒策略（相对截止的提前小时数） */
 const USER_TYPES = {
-  procrastinator:{name:'拖延者',short:'需要被催',desc:'我总拖着不动，请多提醒我几次',freq:4,stages:[72,24,12,2]},
+  procrastinator:{name:'拖延者',short:'需要被催',desc:'我总拖着不动，请多提醒我几次',freq:10,stages:[168,72,48,24,12,6,3,2,1,0.5]},
   busy:{name:'忙碌者',short:'别烦我',desc:'我很忙，只在关键节点提醒我',freq:2,stages:[24,2]},
   organized:{name:'组织者',short:'心里有数',desc:'我自己会安排，提醒一次就够',freq:1,stages:[6]},
   perfectionist:{name:'完美主义者',short:'不能出错',desc:'我要提前很久就收到分阶段提醒',freq:5,stages:[168,72,24,6,1]}
@@ -61,8 +61,9 @@ function bindSystemTheme() {
   } catch (e) {}
 }
 
-/* 提前小时数 → 可读文案 */
+/* 提前小时数 → 可读文案（不足 1 小时显示分钟） */
 function stageText(h) {
+  if (h < 1) return Math.round(h * 60) + ' 分钟前';
   if (h >= 24) { const d = h/24; return (Number.isInteger(d) ? d : d.toFixed(1)) + ' 天前'; }
   return h + ' 小时前';
 }
@@ -376,8 +377,12 @@ function renderUserType() {
 function renderStyleEntry() {
   const cfg = USER_TYPES[state.settings.userType] || USER_TYPES.organized;
   const n = $('seName'), d = $('seDesc');
+  const first = cfg.stages[0], last = cfg.stages[cfg.stages.length - 1];
   if (n) n.textContent = cfg.name + ' · ' + cfg.short;
-  if (d) d.textContent = '截止 ' + cfg.stages.map(stageText).join('、') + '，共 ' + cfg.freq + ' 次提醒';
+  // 只给首尾两个时间点：提醒次数多时逐个列出会把这一行撑成好几行
+  if (d) d.textContent = cfg.freq === 1
+    ? '截止 ' + stageText(first) + '提醒 1 次'
+    : '截止 ' + stageText(first) + '起，最近 ' + stageText(last) + '，共 ' + cfg.freq + ' 次';
 }
 
 /* ============ 提醒风格专属界面 ============ */
@@ -812,6 +817,7 @@ function bindTrayActions() {
   window.todoAPI.onAction((action, payload) => {
     if (action === 'new-task') { openNew(); const el = $('fTitle'); if (el) el.focus(); }
     if (action === 'view') setView(payload);
+    if (action === 'settings') openSettings();
   });
   // 主进程发来的普通提示（如「已稍后提醒」）
   try { window.todoAPI.onToast((msg) => { if (msg) toast(msg.title + '\n' + msg.body); }); } catch (e) {}
