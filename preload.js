@@ -41,9 +41,8 @@ contextBridge.exposeInMainWorld('todoAPI', {
   floatShow: () => ipcRenderer.invoke('float-show'),
   floatToggle: () => ipcRenderer.send('float-toggle'),
   floatSetIgnore: (ignore) => ipcRenderer.send('float-set-ignore', ignore),
-  floatDragStart: () => ipcRenderer.invoke('float-drag-start'),
-  floatDragTo: (x, y) => ipcRenderer.send('float-drag-to', x, y),
-  floatDragEnd: () => ipcRenderer.send('float-drag-end'),
+  // 拖动：渲染进程只报「开始 / 结束」，位置由主进程按光标坐标计算，避免坐标系不一致
+  floatDrag: (phase) => ipcRenderer.invoke('float-drag', phase),
 
   /* ---------- 主进程 → 渲染进程 ---------- */
   onFloatNotify: (callback) => {

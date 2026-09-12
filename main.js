@@ -194,18 +194,56 @@ function savedFloatPos() {
   if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') return null;
   return clampFloatPos(p.x, p.y);
 }
-let floatPosTimer = null;
+// 记住当前悬浮窗位置（拖动结束时调用一次即可，无需频繁写盘）
 function saveFloatPos() {
-  clearTimeout(floatPosTimer);
-  floatPosTimer = null;
   if (!floatWindow || floatWindow.isDestroyed()) return;
   const [x, y] = floatWindow.getPosition();
   store.set('floatPos', { x, y });
 }
-// 拖动过程中频繁写盘没有意义，停下后再记一次
-function scheduleFloatPosSave() {
-  clearTimeout(floatPosTimer);
-  floatPosTimer = setTimeout(saveFloatPos, 400);
+
+/* -------------------------------------------------------------
+ * 悬浮窗拖动
+ * 位置完全在主进程内计算：起点取 getPosition()，位移取 getCursorScreenPoint()，
+ * 两者与 setPosition() 属同一坐标系，不经过渲染进程的事件坐标 ——
+ * 于是不存在 DPI/坐标系换算造成的偏移或方向错误。
+ * 按下时启动轮询：每 16ms 采样一次光标，按「起点 + 总位移」设置窗口位置
+ * （不做增量累加，避免取整误差累积）；位移不足阈值则视为点击。
+ * ------------------------------------------------------------- */
+const DRAG_TICK = 16;         // 轮询间隔（毫秒）
+const DRAG_MIN_PX = 3;        // 位移小于该值视为点击
+const DRAG_MAX_MS = 30000;    // 安全上限：渲染进程异常未发结束信号时兜底
+let dragState = null;
+
+function startFloatDrag() {
+  if (!floatWindow || floatWindow.isDestroyed()) return { ok: false };
+  if (dragState) stopFloatDrag();
+  const [x, y] = floatWindow.getPosition();
+  const c = screen.getCursorScreenPoint();
+  dragState = { winX: x, winY: y, curX: c.x, curY: c.y, moved: false, start: Date.now(), timer: null };
+  floatWindow.setIgnoreMouseEvents(false);   // 拖动期间保持可交互
+  dragState.timer = setInterval(() => {
+    if (!dragState || !floatWindow || floatWindow.isDestroyed() || Date.now() - dragState.start > DRAG_MAX_MS) {
+      stopFloatDrag();
+      return;
+    }
+    const p = screen.getCursorScreenPoint();
+    const dx = p.x - dragState.curX, dy = p.y - dragState.curY;
+    if (!dragState.moved && Math.abs(dx) + Math.abs(dy) >= DRAG_MIN_PX) dragState.moved = true;
+    if (!dragState.moved) return;
+    const t = clampFloatPos(dragState.winX + dx, dragState.winY + dy);
+    floatWindow.setPosition(t.x, t.y);
+  }, DRAG_TICK);
+  return { ok: true };
+}
+
+// 返回 { moved }：渲染进程据此区分「拖动」与「点击」
+function stopFloatDrag() {
+  if (!dragState) return { moved: false };
+  const moved = dragState.moved;
+  clearInterval(dragState.timer);
+  dragState = null;
+  saveFloatPos();
+  return { moved };
 }
 
 function createFloatWindow() {
@@ -243,7 +281,7 @@ function createFloatWindow() {
   floatWindow.on('closed', () => { floatWindow = null; });
 }
 function showFloatWindow() { if (!floatWindow || floatWindow.isDestroyed()) createFloatWindow(); floatWindow.show(); }
-function hideFloatWindow() { if (floatWindow && !floatWindow.isDestroyed()) floatWindow.hide(); }
+function hideFloatWindow() { if (dragState) stopFloatDrag(); if (floatWindow && !floatWindow.isDestroyed()) floatWindow.hide(); }
 function toggleFloatWindow() { if (floatWindow && floatWindow.isVisible()) hideFloatWindow(); else showFloatWindow(); }
 // 提醒联动：把提醒推给悬浮窗（形态保持不变）。
 // 悬浮窗被用户关闭时不强行唤起，避免弹回一个已被关掉的窗口。
@@ -437,21 +475,9 @@ function registerIpc() {
       floatWindow.setIgnoreMouseEvents(!!ignore, { forward: true });
     }
   });
-  // 拖动悬浮窗：渲染进程给出「窗口左上角的绝对目标坐标」（由拖动起点 + 指针位移算出），
-  // 绝不用「累加增量」的方式移动 —— 每次 setPosition 都会取整，累加会不断累积误差导致偏移。
-  ipcMain.handle('float-drag-start', () => {
-    if (!floatWindow || floatWindow.isDestroyed()) return null;
-    const [x, y] = floatWindow.getPosition();
-    return { x, y };
-  });
-  ipcMain.on('float-drag-to', (e, x, y) => {
-    if (!floatWindow || floatWindow.isDestroyed()) return;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    const p = clampFloatPos(x, y);
-    floatWindow.setPosition(p.x, p.y);
-    scheduleFloatPosSave();
-  });
-  ipcMain.on('float-drag-end', () => { if (floatPosTimer) saveFloatPos(); });
+  // 拖动悬浮窗：渲染进程只报「开始 / 结束」，位置由主进程按光标坐标计算
+  // （放在同一通道上，保证 start 一定先于 end 被处理）
+  ipcMain.handle('float-drag', (e, phase) => phase === 'start' ? startFloatDrag() : stopFloatDrag());
 
   // 退出操作（设置 → 退出操作，直接选择）
   ipcMain.handle('close-action-get', () => getCloseAction());
@@ -461,4 +487,4 @@ function registerIpc() {
 /* ---------- 生命周期 ---------- */
 // 后台常驻：即使窗口全部关闭也不退出，托盘持续运行（不调用 app.quit）
 app.on('window-all-closed', () => { if (isQuitting) app.quit(); });
-app.on('before-quit', () => { isQuitting = true; if (floatPosTimer) saveFloatPos(); });
+app.on('before-quit', () => { isQuitting = true; if (dragState) stopFloatDrag(); saveFloatPos(); });

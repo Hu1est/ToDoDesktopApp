@@ -211,7 +211,7 @@ function setIgnore(next) {
   try { window.todoAPI.floatSetIgnore(next); } catch (e) {}
 }
 document.addEventListener('mousemove', (e) => {
-  if (drag) return;                   // 拖动中不做穿透判定，避免丢事件
+  if (drag) return;                   // 拖动中不做穿透判定，避免中途丢事件
   const el = document.elementFromPoint(e.clientX, e.clientY);
   const overIsland = !!(el && el.closest && el.closest('#island'));
   setIgnore(!overIsland);
@@ -239,46 +239,38 @@ island.addEventListener('wheel', touch, { passive: true });
 island.addEventListener('keydown', touch);
 
 /* —— 拖动 / 点击 ——
-   按住药丸（或卡片标题区）可把悬浮窗拖到任意位置。
-   位置用「拖动起点的窗口坐标 + 指针总位移」算出绝对坐标后交给主进程，
-   不做增量累加：setPosition 每次都会取整，累加会持续累积误差、越拖越偏。
-   位移小于阈值时视为点击 → 展开。 */
-const DRAG_MIN = 3;
-let drag = null;
+   按住药丸（或卡片标题区）即可拖动悬浮窗。
+   渲染进程**不参与坐标计算**：只上报「开始 / 结束」，位置由主进程轮询真实光标坐标
+   并调用 setPosition 完成，因此不受事件坐标与窗口坐标不一致（DPI/坐标系）的影响，
+   也不会因为中途收不到 pointermove 而丢位移或走错方向。
+   结束时主进程回报是否真的移动过：位移不足阈值就当作点击展开。 */
+let drag = null;              // { id, ended }
 const handles = [$('island').querySelector('.pill'), document.querySelector('.fhead-title')].filter(Boolean);
 
+function finishDrag(allowClick) {
+  drag = null;
+  window.todoAPI.floatDrag('end').then(r => {
+    if (allowClick && r && !r.moved && !expanded) { setExpanded(true); armIdle(); }   // 位移不足 → 点击
+  }).catch(() => {});
+}
 function endDrag(e, allowClick) {
   if (!drag || (e && e.pointerId !== drag.id)) return;
-  const moved = drag.moved;
-  drag = null;
+  drag.ended = true;
   handles.forEach(h => h.classList.remove('dragging'));
-  try { if (e) e.target.releasePointerCapture(e.pointerId); } catch (err) {}
-  window.todoAPI.floatDragEnd();
-  if (!moved && allowClick) { setExpanded(true); armIdle(); }
+  try { if (e && e.target) e.target.releasePointerCapture(e.pointerId); } catch (err) {}
+  finishDrag(allowClick);
 }
 
 handles.forEach(h => {
   h.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    drag = { id: e.pointerId, sx: e.screenX, sy: e.screenY, ox: null, oy: null, moved: false };
+    if (e.button !== 0 || drag) return;
+    drag = { id: e.pointerId, ended: false };
     h.classList.add('dragging');
-    try { h.setPointerCapture(e.pointerId); } catch (err) {}
-    // 起点坐标异步取回；取回前不移动窗口，取回后按绝对坐标补上（不会丢位移）
-    window.todoAPI.floatDragStart().then(p => {
-      if (drag && drag.id === e.pointerId && p) { drag.ox = p.x; drag.oy = p.y; }
-    });
-  });
-  h.addEventListener('pointermove', (e) => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const dx = e.screenX - drag.sx, dy = e.screenY - drag.sy;
-    if (!drag.moved) {
-      if (Math.abs(dx) + Math.abs(dy) < DRAG_MIN) return;   // 抖动：仍按点击处理
-      drag.moved = true;
-      setIgnore(false);
-    }
-    if (drag.ox === null) return;
-    window.todoAPI.floatDragTo(drag.ox + dx, drag.oy + dy);
     touch();
+    try { h.setPointerCapture(e.pointerId); } catch (err) {}
+    window.todoAPI.floatDrag('start').then(() => {
+      if (drag && drag.ended) finishDrag(true);   // 按下后立刻松手：补一次结束
+    }).catch(() => {});
   });
   h.addEventListener('pointerup', (e) => endDrag(e, true));
   h.addEventListener('pointercancel', (e) => endDrag(e, false));
