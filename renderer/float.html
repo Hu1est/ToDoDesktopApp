@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>智能待办 · 灵动岛</title>
+<link rel="stylesheet" href="float.css">
+</head>
+<body>
+<!-- 固定尺寸舞台：右下角对齐；岛体在内部做尺寸/圆角过渡动画 -->
+<div class="stage">
+  <div class="island collapsed" id="island">
+
+    <!-- 折叠态：药丸胶囊 -->
+    <div class="pill">
+      <div class="pill-logo">
+        <svg class="ic-normal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        <svg class="ic-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        <span class="pill-sweep"></span>
+      </div>
+      <div class="pill-info">
+        <div class="p-main" id="pillMain">今日 0 项</div>
+        <div class="p-sub" id="pillSub">智能待办</div>
+      </div>
+    </div>
+
+    <!-- 展开态：卡片 -->
+    <div class="card">
+      <div class="fnotify" id="fnotify">
+        <div class="n-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div>
+        <div class="n-txt"><div class="n-t" id="notifyT"></div><div class="n-b" id="notifyB"></div></div>
+      </div>
+      <div class="fhead">
+        <div class="fhead-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          <span>今日待办</span>
+        </div>
+        <div class="fhead-actions">
+          <button class="fbtn" id="fPin" data-tip="置顶"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M6 3l6 6 6-6"/></svg></button>
+          <button class="fbtn" id="fMain" data-tip="打开主窗口"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/><path d="M3 9h18M9 21V9"/></svg></button>
+          <button class="fbtn fclose" id="fClose" data-tip="收起"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l-7 7 7 7"/></svg></button>
+        </div>
+      </div>
+      <div class="fbody" id="fBody"><div class="floading">正在加载…</div></div>
+      <div class="ffoot" id="fFoot"></div>
+    </div>
+
+  </div>
+</div>
+<script src="float.js"></script>
+</body>
+</html>

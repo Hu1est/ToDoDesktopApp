@@ -1,0 +1,19 @@
+# 依赖（保留 package-lock.json 以保证可复现构建）
+node_modules/
+
+# 构建产物（含便携 exe，体积大且每次构建都会变，不入库）
+dist/
+*.exe
+*.blockmap
+builder-debug.yml
+
+# 临时/调试文件
+test-*.js
+*.log
+*.png.bak
+shot-*.png
+
+# 系统
+Thumbs.db
+Desktop.ini
+.DS_Store
