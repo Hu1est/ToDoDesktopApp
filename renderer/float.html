@@ -29,8 +29,15 @@
     <!-- 展开态：卡片 -->
     <div class="card">
       <div class="fnotify" id="fnotify">
-        <div class="n-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div>
-        <div class="n-txt"><div class="n-t" id="notifyT"></div><div class="n-b" id="notifyB"></div></div>
+        <div class="n-top">
+          <div class="n-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div>
+          <div class="n-txt"><div class="n-t" id="notifyT"></div><div class="n-b" id="notifyB"></div></div>
+        </div>
+        <div class="n-actions">
+          <button class="nbtn" data-snooze="600000">10 分钟</button>
+          <button class="nbtn" data-snooze="3600000">1 小时</button>
+          <button class="nbtn" data-snooze="tomorrow">明天</button>
+        </div>
       </div>
       <div class="fhead">
         <div class="fhead-title">

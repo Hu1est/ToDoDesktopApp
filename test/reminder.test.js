@@ -117,6 +117,31 @@ test('记录清理：任务被删除后其记录被清除，过期记录也清�
   assert.strictEqual(r.fired['keep-1'], NOW - 1000, '未过期的记录保留');
 });
 
+test('稍后提醒：未到恢复时刻不打扰，也不消费记录', () => {
+  const t = task({ due: new Date(NOW - 1 * H).toISOString() });   // 已逾期，正常会被提醒
+  const r = dueReminders([t], settings(), {}, NOW, { catchUp: true, snooze: { x: NOW + 10 * 60000 } });
+  assert.strictEqual(r.hits.length, 0, '稍后提醒期间不应提醒');
+  assert.strictEqual(r.snooze['x'], NOW + 10 * 60000, '记录应保留');
+  assert.deepStrictEqual(r.fired, {}, '不应标记提醒点');
+});
+
+test('稍后提醒：到点后发一条「稍后提醒」并消费记录', () => {
+  const t = task({ due: new Date(NOW + 3 * H).toISOString() });
+  const r = dueReminders([t], settings(), {}, NOW, { catchUp: true, snooze: { x: NOW - 1 } });
+  assert.strictEqual(r.hits.length, 1);
+  assert.strictEqual(r.hits[0].title, '稍后提醒');
+  assert.strictEqual(r.hits[0].body, '「任务」还有 3 小时到期');
+  assert.strictEqual(r.snooze['x'], undefined, '记录应被消费');
+  // 下一次检查：提醒点已在上一轮标记过，不会再提醒
+  const r2 = dueReminders([t], settings(), r.fired, NOW + 1000, { catchUp: true, snooze: r.snooze });
+  assert.strictEqual(r2.hits.length, 0);
+});
+
+test('稍后提醒：任务被删除后记录被清理', () => {
+  const r = dueReminders([], settings(), {}, NOW, { snooze: { gone: NOW + 10 * 60000 } });
+  assert.deepStrictEqual(r.snooze, {});
+});
+
 test('多条提醒合并成一条通知文案', () => {
   assert.strictEqual(summarize([]), null);
   const one = summarize([{ title: '任务即将截止', body: 'A' }]);

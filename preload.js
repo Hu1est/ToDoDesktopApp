@@ -30,6 +30,10 @@ contextBridge.exposeInMainWorld('todoAPI', {
   alertInfo: (title, message) => ipcRenderer.invoke('alert-info', { title, message }),
   confirmSave: (message, detail) => ipcRenderer.invoke('confirm-save', { message, detail }),
 
+  /* ---------- 快速添加 / 稍后提醒 ---------- */
+  quickParse: (text, ctx) => ipcRenderer.invoke('quick-parse', { text, ctx }),
+  snoozeSet: (ids, ms) => ipcRenderer.invoke('snooze-set', { ids, ms }),
+
   /* ---------- 退出操作 ---------- */
   getCloseAction: () => ipcRenderer.invoke('close-action-get'),
   setCloseAction: (v) => ipcRenderer.invoke('close-action-set', v),
@@ -70,5 +74,11 @@ contextBridge.exposeInMainWorld('todoAPI', {
     const handler = (event, payload) => callback(payload);
     ipcRenderer.on('reminder', handler);
     return () => ipcRenderer.removeListener('reminder', handler);
+  },
+  // 主进程发来的普通提示（如「已稍后提醒」）
+  onToast: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on('app-toast', handler);
+    return () => ipcRenderer.removeListener('app-toast', handler);
   }
 });

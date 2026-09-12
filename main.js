@@ -2,9 +2,10 @@
  * 智能待办 · Electron 主进程
  * 职责：主窗口与灵动岛悬浮窗、系统托盘常驻、关闭行为、开机自启、单实例锁、数据持久化
  */
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell, nativeTheme, screen, powerMonitor } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell, nativeTheme, screen, powerMonitor, globalShortcut } = require('electron');
 const { execFileSync } = require('child_process');
 const { dueReminders, summarize } = require('./reminder');
+const { parseQuickAdd } = require('./quick-add');
 const path = require('path');
 const fs = require('fs');
 
@@ -27,6 +28,7 @@ let tray = null;
 let isQuitting = false;
 
 const APP_NAME = '智能待办';
+const pad2 = n => String(n).padStart(2, '0');
 
 /* ---------- 单实例锁：避免重复启动，重复启动时聚焦已有窗口 ---------- */
 const gotLock = app.requestSingleInstanceLock();
@@ -51,6 +53,7 @@ if (!gotLock) {
     // 系统深浅色变化时推送给渲染进程（比渲染进程里的 matchMedia change 事件可靠）
     nativeTheme.on('updated', broadcastSystemTheme);
     startReminderEngine();
+    registerShortcuts();
   });
 }
 
@@ -287,9 +290,9 @@ function hideFloatWindow() { if (dragState) stopFloatDrag(); if (floatWindow && 
 function toggleFloatWindow() { if (floatWindow && floatWindow.isVisible()) hideFloatWindow(); else showFloatWindow(); }
 // 提醒联动：把提醒推给悬浮窗（形态保持不变）。
 // 悬浮窗被用户关闭时不强行唤起；窗口还没加载完也不推（避免事件丢失）。
-function floatNotify(title, body) {
+function floatNotify(title, body, ids) {
   if (!floatWindow || floatWindow.isDestroyed() || !floatWindow.isVisible() || floatWindow.webContents.isLoading()) return false;
-  floatWindow.webContents.send('float-notify', { title, body });
+  floatWindow.webContents.send('float-notify', { title, body, ids: ids || [] });
   return true;
 }
 
@@ -308,8 +311,17 @@ function buildTrayMenu() {
   return Menu.buildFromTemplate([
     { label: '打开主界面', click: showMainWindow },
     { type: 'separator' },
+    { label: '快速添加任务（' + QUICK_ADD_ACCELERATOR.replace('CommandOrControl', 'Ctrl') + '）', click: () => { showMainWindow(); sendAction('quick-add'); } },
     { label: '新建任务', click: () => { showMainWindow(); sendAction('new-task'); } },
     { label: '显示全部任务', click: () => { showMainWindow(); sendAction('view', 'all'); } },
+    {
+      label: '稍后提醒',
+      enabled: lastReminderIds.length > 0,
+      submenu: ['10m', '1h', 'tomorrow'].map(kind => ({
+        label: snoozeLabel(kind),
+        click: () => applySnooze(lastReminderIds, snoozeTarget(kind))
+      }))
+    },
     { label: '悬浮窗', click: () => toggleFloatWindow() },
     { type: 'separator' },
     {
@@ -392,7 +404,52 @@ function setLogin(enabled) {
  * 这里只负责触发时机、持久化与推送。
  * ------------------------------------------------------------- */
 const REMIND_TICK = 30000;      // 常规检查间隔（毫秒）
+const QUICK_ADD_ACCELERATOR = 'CommandOrControl+Alt+N';   // 全局快捷键：快速添加
 let remindTimer = null;
+let lastReminderIds = [];       // 最近一次提醒涉及的任务（托盘「稍后提醒」用）
+
+/* 全局快捷键：呼出主窗口并打开快速添加 */
+function registerShortcuts() {
+  try {
+    const ok = globalShortcut.register(QUICK_ADD_ACCELERATOR, () => {
+      showMainWindow();
+      sendAction('quick-add');
+    });
+    if (!ok) console.log('[快捷键] 注册失败（可能已被其他程序占用）：' + QUICK_ADD_ACCELERATOR);
+  } catch (e) { console.log('[快捷键] 注册异常：' + e.message); }
+}
+
+/* 稍后提醒：把最近一次提醒涉及的任务推迟到某个时刻 */
+function snoozeTarget(kind) {
+  const now = Date.now();
+  if (kind === '10m') return now + 10 * 60000;
+  if (kind === '1h') return now + 3600e3;
+  const d = new Date(now + 864e5); d.setHours(9, 0, 0, 0);   // 明天 09:00
+  if (d.getTime() - now < 2 * 3600e3) d.setTime(d.getTime() + 864e5);
+  return d.getTime();
+}
+function snoozeLabel(kind) {
+  const t = new Date(snoozeTarget(kind));
+  return kind === 'tomorrow' ? ('明天 ' + t.getHours() + ':00') : (kind === '1h' ? '1 小时' : '10 分钟');
+}
+function applySnooze(ids, untilMs) {
+  const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
+  if (!list.length) return false;
+  const snooze = Object.assign({}, store.get('snooze', {}) || {});
+  list.forEach(id => { snooze[id] = untilMs; });
+  store.set('snooze', snooze);
+  lastReminderIds = [];
+  if (tray) tray.setContextMenu(buildTrayMenu());
+  const body = '「稍后提醒」已推迟到 ' + whileText(untilMs) + '，到点会再提醒你一次';
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app-toast', { title: '已稍后提醒', body: body });
+  return true;
+}
+function whileText(untilMs) {
+  const mins = Math.round((untilMs - Date.now()) / 60000);
+  if (mins <= 60) return mins + ' 分钟后';
+  const d = new Date(untilMs);
+  return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
 
 function startReminderEngine() {
   // 首屏就绪后先做一次「补发」检查：应用没运行期间错过的提醒在这里补上
@@ -415,18 +472,23 @@ function checkReminders(catchUp) {
   if (!windowsReady()) return;
   const now = Date.now();
   const before = store.get('fired', {}) || {};
-  const res = dueReminders(store.get('todos', []), store.get('settings', {}), before, now, { catchUp: catchUp });
+  const snoozeBefore = store.get('snooze', {}) || {};
+  const res = dueReminders(store.get('todos', []), store.get('settings', {}), before, now, { catchUp: catchUp, snooze: snoozeBefore });
   // 只有记录真的变了才写盘，避免每 30 秒无谓地写一次文件
   if (JSON.stringify(res.fired) !== JSON.stringify(before)) store.set('fired', res.fired);
+  if (JSON.stringify(res.snooze) !== JSON.stringify(snoozeBefore)) store.set('snooze', res.snooze);
   const msg = summarize(res.hits);
-  if (msg) dispatchReminder(msg);
+  if (msg) dispatchReminder(msg, res.hits);
 }
 function catchUpReminders() { checkReminders(true); }
 
-function dispatchReminder(msg) {
+function dispatchReminder(msg, hits) {
+  lastReminderIds = (hits || []).map(h => h.id).filter(Boolean);
   console.log('[提醒] ' + msg.title + ' — ' + msg.body.replace(/\n/g, ' / '));
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('reminder', msg);
-  floatNotify(msg.title, msg.body);
+  if (tray) tray.setContextMenu(buildTrayMenu());      // 让托盘里的「稍后提醒」变为可用
+  const payload = { title: msg.title, body: msg.body, ids: lastReminderIds };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('reminder', payload);
+  floatNotify(msg.title, msg.body, lastReminderIds);
 }
 
 /* ---------- IPC 通信 ---------- */
@@ -527,6 +589,16 @@ function registerIpc() {
   // （放在同一通道上，保证 start 一定先于 end 被处理）
   ipcMain.handle('float-drag', (e, phase) => phase === 'start' ? startFloatDrag() : stopFloatDrag());
 
+  // 快速添加：解析一句话（渲染进程负责界面，解析逻辑与单测共用同一份实现）
+  ipcMain.handle('quick-parse', (e, { text, ctx }) => parseQuickAdd(text, ctx));
+
+  // 稍后提醒：把任务推迟到某个时刻（由提醒横幅或托盘菜单触发）
+  ipcMain.handle('snooze-set', (e, { ids, ms }) => {
+    const until = ms === 'tomorrow' ? snoozeTarget('tomorrow') : Number(ms) > 0 ? Date.now() + Number(ms) : 0;
+    if (!until) return false;
+    return applySnooze(ids, until);
+  });
+
   // 退出操作（设置 → 退出操作，直接选择）
   ipcMain.handle('close-action-get', () => getCloseAction());
   ipcMain.handle('close-action-set', (e, v) => setCloseAction(v));
@@ -536,3 +608,4 @@ function registerIpc() {
 // 后台常驻：即使窗口全部关闭也不退出，托盘持续运行（不调用 app.quit）
 app.on('window-all-closed', () => { if (isQuitting) app.quit(); });
 app.on('before-quit', () => { isQuitting = true; if (dragState) stopFloatDrag(); saveFloatPos(); });
+app.on('will-quit', () => { globalShortcut.unregisterAll(); });

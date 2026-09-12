@@ -162,12 +162,17 @@ body.light .island.alerting{border-color:var(--primary);
 .floading{display:flex;align-items:center;justify-content:center;height:100%;color:var(--t3)}
 .fempty{padding:1rem .5rem;text-align:center;color:var(--t3)}
 
-/* 通知联动横幅 */
-.fnotify{display:none;align-items:center;gap:.5rem;padding:.5rem .7rem;
+/* 通知联动横幅（带稍后提醒按钮） */
+.fnotify{display:none;flex-direction:column;gap:.4rem;padding:.5rem .7rem;
   background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff}
 .island.notifying .fnotify{display:flex}
+.fnotify .n-top{display:flex;align-items:center;gap:.5rem}
 .fnotify .n-ic{width:20px;height:20px;flex-shrink:0}
 .fnotify .n-ic svg{width:100%;height:100%}
 .fnotify .n-txt{flex:1;min-width:0}
 .fnotify .n-txt .n-t{font-size:11.5px;font-weight:600}
 .fnotify .n-txt .n-b{font-size:10.5px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fnotify .n-actions{display:flex;gap:.3rem}
+.fnotify .nbtn{font-size:10.5px;line-height:1;padding:.28rem .5rem;border-radius:6px;
+  background:rgba(255,255,255,.2);color:#fff;transition:background var(--dur-1) var(--ease)}
+.fnotify .nbtn:hover{background:rgba(255,255,255,.36)}

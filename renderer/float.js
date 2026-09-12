@@ -59,7 +59,15 @@ function setExpanded(on) {
   const el = $('island');
   el.classList.toggle('expanded', on);
   el.classList.toggle('collapsed', !on);
-  if (on) { load(); armIdle(); } else { clearTimeout(idleTimer); }
+  if (on) {
+    load(); armIdle();
+    // 展开时若还有未处理的提醒，重新把横幅亮出来（方便点「稍后提醒」）
+    if (lastReminder && Date.now() - lastReminder.at < REMINDER_MEMORY_MS) {
+      el.classList.add('notifying');
+      clearTimeout(notifyTimer);
+      notifyTimer = setTimeout(() => el.classList.remove('notifying'), NOTIFY_KEEP_MS);
+    }
+  } else { clearTimeout(idleTimer); }
 }
 
 /* 胶囊上的即时提醒：把标题短暂顶到胶囊上显示（不改变形态） */
@@ -83,22 +91,36 @@ function pillAlert(title) {
   }, 5000);
 }
 
-/* 通知联动：保持当前形态（胶囊仍是胶囊，卡片仍是卡片） */
+/* 通知联动：保持当前形态（胶囊仍是胶囊，卡片仍是卡片）
+   横幅里带「稍后提醒」按钮；展开态停留 20 秒，收起时记住这条提醒，
+   用户在 30 分钟内展开卡片仍能看到并操作它。 */
+const NOTIFY_KEEP_MS = 20 * 1000;
+const REMINDER_MEMORY_MS = 30 * 60 * 1000;
 let notifyTimer = null;
-function showNotify(title, body) {
+let lastReminder = null;      // { title, body, ids, at }
+
+function showNotify(title, body, ids) {
   const el = $('island');
-  $('notifyT').textContent = title || '任务提醒';
-  $('notifyB').textContent = body || '';
+  lastReminder = { title: title || '任务提醒', body: body || '', ids: Array.isArray(ids) ? ids : [], at: Date.now() };
+  $('notifyT').textContent = lastReminder.title;
+  $('notifyB').textContent = lastReminder.body;
   el.classList.add('notifying');
   clearTimeout(notifyTimer);
   if (expanded) {
-    // 已是卡片：显示横幅，并延长空闲计时（让用户看完）
+    // 已是卡片：显示横幅，并延长空闲计时（让用户来得及选稍后提醒）
     armIdle();
-    notifyTimer = setTimeout(() => el.classList.remove('notifying'), 5000);
+    notifyTimer = setTimeout(() => el.classList.remove('notifying'), NOTIFY_KEEP_MS);
   } else {
     // 保持胶囊形态：用胶囊文字提示，随后自动恢复
-    pillAlert(title || '任务提醒');
+    pillAlert(lastReminder.title);
   }
+}
+
+/* 收起横幅并忘掉这条提醒（已稍后提醒 / 已收起卡片） */
+function clearReminder() {
+  lastReminder = null;
+  clearTimeout(notifyTimer);
+  $('island').classList.remove('notifying');
 }
 
 async function load() {
@@ -284,14 +306,26 @@ $('fPin').addEventListener('click', () => {
 });
 $('fMain').addEventListener('click', () => window.todoAPI.floatShowMain());
 $('fClose').addEventListener('click', () => {
-  $('island').classList.remove('notifying');
+  clearReminder();
   setExpanded(false);
+});
+/* 稍后提醒：横幅上的三个按钮（10 分钟 / 1 小时 / 明天） */
+document.querySelectorAll('.fnotify .nbtn').forEach(b => {
+  b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const ids = lastReminder ? lastReminder.ids : [];
+    const raw = b.dataset.snooze;
+    const val = raw === 'tomorrow' ? 'tomorrow' : parseInt(raw, 10);
+    clearReminder();
+    try { await window.todoAPI.snoozeSet(ids, val); } catch (err) {}
+    load();
+  });
 });
 $('fFoot').addEventListener('click', (e) => { if (e.target.id === 'fRefresh') { load(); armIdle(); } });
 
 /* 主进程推送的提醒（保持当前形态，不强行展开） */
 window.todoAPI.onFloatNotify((n) => {
-  if (n) showNotify(n.title, n.body);
+  if (n) showNotify(n.title, n.body, n.ids);
 });
 
 /* 主窗口保存数据后主动同步：胶囊文字与列表跟着更新（短暂合并，避免连续写入时重复渲染） */

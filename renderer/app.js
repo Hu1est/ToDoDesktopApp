@@ -519,6 +519,59 @@ function toggleNotify(id) {
   saveData(); renderAll();
 }
 
+/* ---------- 快速添加（全局快捷键 Ctrl+Alt+N / 托盘菜单 / 工具栏按钮） ----------
+   一句话解析在主进程完成（与 test/quick-add.test.js 共用同一份实现），
+   这里只做界面与实时预览。 */
+let quickResult = null;
+function openQuickAdd() {
+  hideFormCard();
+  const modal = $('quickModal');
+  if (!modal) return;
+  modal.hidden = false;
+  const input = $('quickInput');
+  input.value = '';
+  quickResult = null;
+  $('quickPreview').textContent = '回车添加，Esc 取消';
+  input.focus();
+}
+function closeQuickAdd() { const m = $('quickModal'); if (m) m.hidden = true; }
+function quickCtx() {
+  return {
+    now: Date.now(),
+    categories: cats(),
+    defaultPrio: 'medium',
+    defaultCat: (cats()[0] && cats()[0].id) || 'other'
+  };
+}
+async function updateQuickPreview() {
+  const text = $('quickInput').value.trim();
+  const box = $('quickPreview');
+  if (!text) { quickResult = null; box.textContent = '回车添加，Esc 取消'; return; }
+  try { quickResult = await window.todoAPI.quickParse(text, quickCtx()); }
+  catch (e) { quickResult = null; }
+  if (!quickResult) { box.textContent = ''; return; }
+  const prio = (PRIOS[quickResult.prio] || PRIOS.medium).n;
+  const cat = catName(quickResult.cat);
+  box.innerHTML = quickResult.title
+    ? '→ <b>' + esc(quickResult.dueText) + '</b> · ' + esc(cat) + ' · ' + esc(prio) + '优先级'
+    : '<span class="qp-warn">请输入任务标题</span>';
+}
+async function submitQuickAdd() {
+  const text = $('quickInput').value.trim();
+  if (!text) return;
+  try { quickResult = await window.todoAPI.quickParse(text, quickCtx()); }   // 提交时再解析一次，避免用到过期结果
+  catch (e) { quickResult = null; }
+  if (!quickResult || !quickResult.title) { await updateQuickPreview(); return; }
+  const r = quickResult;
+  state.todos.push({
+    id: uid(), title: r.title, desc: '', due: r.dueISO,
+    prio: r.prio, cat: r.cat, tags: [], done: false, notify: true, created: Date.now()
+  });
+  saveData(); renderAll();
+  closeQuickAdd();
+  toast('已添加：「' + r.title + '」 · ' + r.dueText);
+}
+
 /* ---------- Toast ---------- */
 function toast(msg, type='', duration=2600) {
   const el = document.createElement('div');
@@ -562,7 +615,6 @@ function bindReminders() {
     });
   } catch (e) {}
 }
-
 /* ---------- 视图 & 全部渲染 ---------- */
 function setView(v) {
   state.view = v;
@@ -687,9 +739,10 @@ function bindEvents() {
   $('taskForm').addEventListener('submit', saveTask);
   $('formReset').addEventListener('click', openNew);
   $('formClose').addEventListener('click', hideFormCard);
-  // Esc：关闭悬浮表单 / 风格界面 / 设置弹窗
+  // Esc：关闭快速添加 / 悬浮表单 / 风格界面 / 设置弹窗
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    if (!$('quickModal').hidden) { closeQuickAdd(); return; }
     if (!$('styleModal').hidden) { closeStylePicker(); return; }
     if (!$('settingsModal').hidden) { requestCloseSettings(); return; }
     if (!$('formCard').hidden) hideFormCard();
@@ -717,6 +770,16 @@ function bindEvents() {
       toast('退出操作：' + (CLOSE_ACTION_LABEL[v] || CLOSE_ACTION_LABEL.ask));
     });
   }));
+  // 快速添加：工具栏按钮、输入实时预览、回车提交
+  $('quickBtn').addEventListener('click', openQuickAdd);
+  $('quickInput').addEventListener('input', function () {
+    clearTimeout(this._q); this._q = setTimeout(updateQuickPreview, 120);
+  });
+  $('quickInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submitQuickAdd(); }
+  });
+  $('quickModal').addEventListener('click', (e) => { if (e.target === $('quickModal')) closeQuickAdd(); });
+
   $('trayBtn').addEventListener('click', () => window.todoAPI.minimizeToTray());
   $('floatBtn').addEventListener('click', () => window.todoAPI.floatToggle());
   $('loginBtn').addEventListener('click', toggleLogin);
@@ -746,12 +809,15 @@ function exportData() {
   toast('数据已导出');
 }
 
-/* ---------- 托盘动作（来自主进程） ---------- */
+/* ---------- 托盘/快捷键动作（来自主进程） ---------- */
 function bindTrayActions() {
   window.todoAPI.onAction((action, payload) => {
     if (action === 'new-task') openNew();
+    if (action === 'quick-add') openQuickAdd();
     if (action === 'view') setView(payload);
   });
+  // 主进程发来的普通提示（如「已稍后提醒」）
+  try { window.todoAPI.onToast((msg) => { if (msg) toast(msg.title + '\n' + msg.body); }); } catch (e) {}
 }
 
 /* ---------- 无边框标题栏 ---------- */

@@ -22,6 +22,7 @@ const STAGES = {
 const DEFAULT_TYPE = 'organized';
 const CATCHUP_MS = 12 * 3600e3;     // 最多补发多久以内错过的提醒
 const FIRED_TTL_MS = 60 * 864e5;    // 已触发记录的保留时长
+const SNOOZE_TTL_MS = 7 * 864e5;    // 稍后提醒记录的保留时长（防止无限堆积）
 
 /* 时长文案：分钟 / 小时 / 天 */
 function durationText(ms) {
@@ -31,28 +32,48 @@ function durationText(ms) {
   return h < 24 ? h + ' 小时' : Math.round(h / 24) + ' 天';
 }
 
+/** 该任务当前的提醒文案（逾期 / 还剩多久） */
+function bodyOf(t, dueMs, now) {
+  return dueMs <= now
+    ? '「' + t.title + '」已逾期 ' + durationText(now - dueMs)
+    : '「' + t.title + '」还有 ' + durationText(dueMs - now) + '到期';
+}
+
 /**
  * 计算本轮应提醒的内容
  * @param {Array}  todos     任务列表
  * @param {Object} settings  设置（用 userType、leadMin）
  * @param {Object} fired     已触发记录 { '任务id-提前小时数': 触发时刻 }
  * @param {Number} now       当前时刻（毫秒）
- * @param {Object} opts      { catchUp: 是否补发错过的提醒 }
- * @returns {{ hits: Array<{id,title,body}>, fired: Object }}
+ * @param {Object} opts      { catchUp: 是否补发错过的提醒, snooze: 稍后提醒记录 { 任务id: 恢复时刻 } }
+ * @returns {{ hits: Array<{id,title,body}>, fired: Object, snooze: Object }}
  */
 function dueReminders(todos, settings, fired, now, opts) {
-  const catchUp = !!(opts && opts.catchUp);
+  const o = opts || {};
+  const catchUp = !!o.catchUp;
   const src = settings && typeof settings === 'object' ? settings : {};
   const stages = STAGES[src.userType] || STAGES[DEFAULT_TYPE];
   const leadMin = Math.min(1440, Math.max(1, parseInt(src.leadMin, 10) || 10));
   const windowMs = catchUp ? CATCHUP_MS : leadMin * 60e3;
   const next = Object.assign({}, fired || {});
+  const snoozeNext = Object.assign({}, o.snooze || {});
   const hits = [];
+  const list = Array.isArray(todos) ? todos : [];
 
-  (Array.isArray(todos) ? todos : []).forEach(t => {
+  list.forEach(t => {
     if (!t || !t.id || t.done || !t.notify) return;
     const dueMs = new Date(t.due).getTime();
     if (!Number.isFinite(dueMs)) return;
+
+    // 稍后提醒：未到恢复时刻则完全不打扰；到点了就发一条「稍后提醒」并消费掉
+    if (snoozeNext[t.id]) {
+      if (now < snoozeNext[t.id]) return;
+      delete snoozeNext[t.id];
+      // 本次只发这一条；把已过点的提醒点一并标记，避免稍后又冒出一条普通提醒
+      stages.forEach(h => { if (dueMs - h * 3600e3 <= now) next[t.id + '-' + h] = now; });
+      hits.push({ id: t.id, title: '稍后提醒', body: bodyOf(t, dueMs, now) });
+      return;
+    }
 
     const pending = stages
       .map(h => ({ h: h, point: dueMs - h * 3600e3 }))
@@ -63,24 +84,20 @@ function dueReminders(todos, settings, fired, now, opts) {
     const latest = pending.reduce((a, b) => (a.point > b.point ? a : b));
     pending.forEach(p => { next[t.id + '-' + p.h] = now; });
 
-    const overdue = dueMs <= now;
-    hits.push({
-      id: t.id,
-      title: overdue ? '任务已逾期' : '任务即将截止',
-      body: overdue
-        ? '「' + t.title + '」已逾期 ' + durationText(now - dueMs)
-        : '「' + t.title + '」还有 ' + durationText(dueMs - now) + '到期'
-    });
+    hits.push({ id: t.id, title: dueMs <= now ? '任务已逾期' : '任务即将截止', body: bodyOf(t, dueMs, now) });
   });
 
-  // 清理：过久的记录，以及任务已被删除的记录
-  const ids = new Set((Array.isArray(todos) ? todos : []).map(t => t && t.id).filter(Boolean));
+  // 清理：过久的记录、以及任务已被删除的记录
+  const ids = new Set(list.map(t => t && t.id).filter(Boolean));
   Object.keys(next).forEach(k => {
     const id = k.slice(0, k.lastIndexOf('-'));
     if (!ids.has(id) || now - next[k] > FIRED_TTL_MS) delete next[k];
   });
+  Object.keys(snoozeNext).forEach(id => {
+    if (!ids.has(id) || now - snoozeNext[id] > SNOOZE_TTL_MS) delete snoozeNext[id];
+  });
 
-  return { hits: hits, fired: next };
+  return { hits: hits, fired: next, snooze: snoozeNext };
 }
 
 /* 把多条提醒合并成一条通知文案（最多列 3 条） */
@@ -93,4 +110,4 @@ function summarize(hits) {
   };
 }
 
-module.exports = { STAGES, DEFAULT_TYPE, CATCHUP_MS, FIRED_TTL_MS, durationText, dueReminders, summarize };
+module.exports = { STAGES, DEFAULT_TYPE, CATCHUP_MS, FIRED_TTL_MS, SNOOZE_TTL_MS, durationText, dueReminders, summarize };
