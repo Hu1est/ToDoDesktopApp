@@ -30,8 +30,7 @@ contextBridge.exposeInMainWorld('todoAPI', {
   alertInfo: (title, message) => ipcRenderer.invoke('alert-info', { title, message }),
   confirmSave: (message, detail) => ipcRenderer.invoke('confirm-save', { message, detail }),
 
-  /* ---------- 快速添加 / 稍后提醒 ---------- */
-  quickParse: (text, ctx) => ipcRenderer.invoke('quick-parse', { text, ctx }),
+  /* ---------- 稍后提醒 ---------- */
   snoozeSet: (ids, ms) => ipcRenderer.invoke('snooze-set', { ids, ms }),
 
   /* ---------- 退出操作 ---------- */

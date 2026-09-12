@@ -5,7 +5,6 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell, nativeTheme, screen, powerMonitor, globalShortcut } = require('electron');
 const { execFileSync } = require('child_process');
 const { dueReminders, summarize } = require('./reminder');
-const { parseQuickAdd } = require('./quick-add');
 const path = require('path');
 const fs = require('fs');
 
@@ -311,8 +310,7 @@ function buildTrayMenu() {
   return Menu.buildFromTemplate([
     { label: '打开主界面', click: showMainWindow },
     { type: 'separator' },
-    { label: '快速添加任务（' + QUICK_ADD_ACCELERATOR.replace('CommandOrControl', 'Ctrl') + '）', click: () => { showMainWindow(); sendAction('quick-add'); } },
-    { label: '新建任务', click: () => { showMainWindow(); sendAction('new-task'); } },
+    { label: '新建任务（' + NEW_TASK_ACCELERATOR.replace('CommandOrControl', 'Ctrl') + '）', click: () => { showMainWindow(); sendAction('new-task'); } },
     { label: '显示全部任务', click: () => { showMainWindow(); sendAction('view', 'all'); } },
     {
       label: '稍后提醒',
@@ -404,18 +402,18 @@ function setLogin(enabled) {
  * 这里只负责触发时机、持久化与推送。
  * ------------------------------------------------------------- */
 const REMIND_TICK = 30000;      // 常规检查间隔（毫秒）
-const QUICK_ADD_ACCELERATOR = 'CommandOrControl+Alt+N';   // 全局快捷键：快速添加
+const NEW_TASK_ACCELERATOR = 'CommandOrControl+Alt+N';   // 全局快捷键：新建任务
 let remindTimer = null;
 let lastReminderIds = [];       // 最近一次提醒涉及的任务（托盘「稍后提醒」用）
 
-/* 全局快捷键：呼出主窗口并打开快速添加 */
+/* 全局快捷键：呼出主窗口并打开「新建任务」 */
 function registerShortcuts() {
   try {
-    const ok = globalShortcut.register(QUICK_ADD_ACCELERATOR, () => {
+    const ok = globalShortcut.register(NEW_TASK_ACCELERATOR, () => {
       showMainWindow();
-      sendAction('quick-add');
+      sendAction('new-task');
     });
-    if (!ok) console.log('[快捷键] 注册失败（可能已被其他程序占用）：' + QUICK_ADD_ACCELERATOR);
+    if (!ok) console.log('[快捷键] 注册失败（可能已被其他程序占用）：' + NEW_TASK_ACCELERATOR);
   } catch (e) { console.log('[快捷键] 注册异常：' + e.message); }
 }
 
@@ -589,10 +587,7 @@ function registerIpc() {
   // （放在同一通道上，保证 start 一定先于 end 被处理）
   ipcMain.handle('float-drag', (e, phase) => phase === 'start' ? startFloatDrag() : stopFloatDrag());
 
-  // 快速添加：解析一句话（渲染进程负责界面，解析逻辑与单测共用同一份实现）
-  ipcMain.handle('quick-parse', (e, { text, ctx }) => parseQuickAdd(text, ctx));
-
-  // 稍后提醒：把任务推迟到某个时刻（由提醒横幅或托盘菜单触发）
+  // 稍后提醒：把任务推迟到某个时刻（由提醒横幅、胶囊上的「稍后」或托盘菜单触发）
   ipcMain.handle('snooze-set', (e, { ids, ms }) => {
     const until = ms === 'tomorrow' ? snoozeTarget('tomorrow') : Number(ms) > 0 ? Date.now() + Number(ms) : 0;
     if (!until) return false;

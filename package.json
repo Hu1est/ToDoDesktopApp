@@ -7,7 +7,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node test/reminder.test.js && node test/quick-add.test.js",
+    "test": "node test/reminder.test.js",
     "dist": "electron-builder --win portable",
     "dist:portable": "electron-builder --win portable",
     "dist:installer": "electron-builder --win nsis"
@@ -25,7 +25,6 @@
     "files": [
       "main.js",
       "reminder.js",
-      "quick-add.js",
       "preload.js",
       "renderer/**/*",
       "assets/**/*"

@@ -24,6 +24,7 @@
         <div class="p-main" id="pillMain">今日 0 项</div>
         <div class="p-sub" id="pillSub">智能待办</div>
       </div>
+      <button class="pill-snooze" id="pillSnooze">稍后</button>
     </div>
 
     <!-- 展开态：卡片 -->
@@ -54,6 +55,12 @@
       <div class="ffoot" id="fFoot"></div>
     </div>
 
+  </div>
+  <!-- 胶囊上的「稍后」弹出层：放在岛体之外，避免被岛体的 overflow 裁掉 -->
+  <div class="snooze-sheet" id="snoozeSheet" hidden>
+    <button class="ssbtn" data-snooze="600000">10 分钟</button>
+    <button class="ssbtn" data-snooze="3600000">1 小时</button>
+    <button class="ssbtn" data-snooze="tomorrow">明天 9:00</button>
   </div>
 </div>
 <script src="float.js"></script>

@@ -61,8 +61,9 @@ function setExpanded(on) {
   el.classList.toggle('collapsed', !on);
   if (on) {
     load(); armIdle();
-    // 展开时若还有未处理的提醒，重新把横幅亮出来（方便点「稍后提醒」）
+    // 展开时若还有未处理的提醒，重新把横幅亮出来（含稍后提醒按钮）
     if (lastReminder && Date.now() - lastReminder.at < REMINDER_MEMORY_MS) {
+      setSnoozeable(true);
       el.classList.add('notifying');
       clearTimeout(notifyTimer);
       notifyTimer = setTimeout(() => el.classList.remove('notifying'), NOTIFY_KEEP_MS);
@@ -92,27 +93,41 @@ function pillAlert(title) {
 }
 
 /* 通知联动：保持当前形态（胶囊仍是胶囊，卡片仍是卡片）
-   横幅里带「稍后提醒」按钮；展开态停留 20 秒，收起时记住这条提醒，
-   用户在 30 分钟内展开卡片仍能看到并操作它。 */
+   只有真正的提醒（带任务 id）才提供「稍后提醒」：胶囊上出现「稍后」入口，
+   卡片横幅里出现三个按钮；任务完成之类的提示不带这些。
+   提醒后 60 秒内可直接点「稍后」；30 分钟内展开卡片仍能看到这条提醒。 */
 const NOTIFY_KEEP_MS = 20 * 1000;
 const REMINDER_MEMORY_MS = 30 * 60 * 1000;
+const SNOOZE_KEEP_MS = 60 * 1000;
 let notifyTimer = null;
+let snoozeTimer = null;
 let lastReminder = null;      // { title, body, ids, at }
+
+/* 是否提供「稍后提醒」（只有提醒才为真） */
+function setSnoozeable(on) {
+  const el = $('island');
+  el.classList.toggle('snoozeable', !!on);
+  clearTimeout(snoozeTimer);
+  if (on) snoozeTimer = setTimeout(() => el.classList.remove('snoozeable'), SNOOZE_KEEP_MS);
+  else closeSnoozeSheet();
+}
 
 function showNotify(title, body, ids) {
   const el = $('island');
-  lastReminder = { title: title || '任务提醒', body: body || '', ids: Array.isArray(ids) ? ids : [], at: Date.now() };
-  $('notifyT').textContent = lastReminder.title;
-  $('notifyB').textContent = lastReminder.body;
+  const isReminder = Array.isArray(ids) && ids.length > 0;
+  lastReminder = isReminder ? { title: title || '任务提醒', body: body || '', ids: ids, at: Date.now() } : null;
+  $('notifyT').textContent = title || '任务提醒';
+  $('notifyB').textContent = body || '';
   el.classList.add('notifying');
   clearTimeout(notifyTimer);
+  setSnoozeable(isReminder);
   if (expanded) {
     // 已是卡片：显示横幅，并延长空闲计时（让用户来得及选稍后提醒）
     armIdle();
     notifyTimer = setTimeout(() => el.classList.remove('notifying'), NOTIFY_KEEP_MS);
   } else {
     // 保持胶囊形态：用胶囊文字提示，随后自动恢复
-    pillAlert(lastReminder.title);
+    pillAlert(title || '任务提醒');
   }
 }
 
@@ -121,6 +136,27 @@ function clearReminder() {
   lastReminder = null;
   clearTimeout(notifyTimer);
   $('island').classList.remove('notifying');
+  setSnoozeable(false);
+}
+
+/* —— 稍后提醒弹出层（胶囊上的「稍后」入口） —— */
+function openSnoozeSheet() {
+  const sheet = $('snoozeSheet');
+  if (!sheet) return;
+  sheet.hidden = false;
+  setIgnore(false);            // 保证弹出层可点
+}
+function closeSnoozeSheet() {
+  const sheet = $('snoozeSheet');
+  if (sheet) sheet.hidden = true;
+}
+async function applySnooze(raw) {
+  const ids = lastReminder ? lastReminder.ids : [];
+  const val = raw === 'tomorrow' ? 'tomorrow' : parseInt(raw, 10);
+  closeSnoozeSheet();
+  clearReminder();
+  try { await window.todoAPI.snoozeSet(ids, val); } catch (e) {}
+  load();
 }
 
 async function load() {
@@ -235,7 +271,8 @@ function setIgnore(next) {
 document.addEventListener('mousemove', (e) => {
   if (drag) return;                   // 拖动中不做穿透判定，避免中途丢事件
   const el = document.elementFromPoint(e.clientX, e.clientY);
-  const overIsland = !!(el && el.closest && el.closest('#island'));
+  // 弹出层在岛体之外，也算可交互区域
+  const overIsland = !!(el && el.closest && el.closest('#island, .snooze-sheet'));
   setIgnore(!overIsland);
 });
 setIgnore(true);                      // 初始：岛体之外穿透
@@ -286,6 +323,7 @@ function endDrag(e, allowClick) {
 handles.forEach(h => {
   h.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || drag) return;
+    if (e.target.closest && e.target.closest('.pill-snooze, .snooze-sheet')) return;   // 「稍后」不是拖动
     drag = { id: e.pointerId, ended: false };
     h.classList.add('dragging');
     touch();
@@ -309,17 +347,17 @@ $('fClose').addEventListener('click', () => {
   clearReminder();
   setExpanded(false);
 });
-/* 稍后提醒：横幅上的三个按钮（10 分钟 / 1 小时 / 明天） */
+/* 稍后提醒：胶囊上的「稍后」入口 + 弹出层 + 卡片横幅上的三个按钮 */
+$('pillSnooze').addEventListener('click', (e) => { e.stopPropagation(); openSnoozeSheet(); });
+document.querySelectorAll('#snoozeSheet .ssbtn').forEach(b => {
+  b.addEventListener('click', (e) => { e.stopPropagation(); applySnooze(b.dataset.snooze); });
+});
+document.addEventListener('mousedown', (e) => {
+  const sheet = $('snoozeSheet');
+  if (sheet && !sheet.hidden && !(e.target.closest && e.target.closest('.snooze-sheet, .pill-snooze'))) closeSnoozeSheet();
+});
 document.querySelectorAll('.fnotify .nbtn').forEach(b => {
-  b.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    const ids = lastReminder ? lastReminder.ids : [];
-    const raw = b.dataset.snooze;
-    const val = raw === 'tomorrow' ? 'tomorrow' : parseInt(raw, 10);
-    clearReminder();
-    try { await window.todoAPI.snoozeSet(ids, val); } catch (err) {}
-    load();
-  });
+  b.addEventListener('click', (e) => { e.stopPropagation(); applySnooze(b.dataset.snooze); });
 });
 $('fFoot').addEventListener('click', (e) => { if (e.target.id === 'fRefresh') { load(); armIdle(); } });
 
