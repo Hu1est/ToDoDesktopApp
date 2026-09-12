@@ -175,6 +175,7 @@ function setIgnore(next) {
   try { window.todoAPI.floatSetIgnore(next); } catch (e) {}
 }
 document.addEventListener('mousemove', (e) => {
+  if (drag) return;                   // 拖动中不做穿透判定，避免丢事件
   const el = document.elementFromPoint(e.clientX, e.clientY);
   const overIsland = !!(el && el.closest && el.closest('#island'));
   setIgnore(!overIsland);
@@ -201,9 +202,43 @@ island.addEventListener('mouseenter', () => { lastPt = null; touch(); });
 island.addEventListener('wheel', touch, { passive: true });
 island.addEventListener('keydown', touch);
 
-// 点击药丸 → 展开
-island.addEventListener('click', (e) => {
-  if (!expanded && e.target.closest('.pill')) { setExpanded(true); armIdle(); }
+/* —— 拖动 / 点击 ——
+   按住药丸（或卡片标题区）可把悬浮窗拖到任意位置：主进程按增量移动窗口、
+   实时限制在屏幕工作区内，并记住位置。位移小于阈值时视为点击 → 展开。 */
+const DRAG_MIN = 3;
+let drag = null;
+const handles = [$('island').querySelector('.pill'), document.querySelector('.fhead-title')].filter(Boolean);
+
+function endDrag(e, allowClick) {
+  if (!drag || (e && e.pointerId !== drag.id)) return;
+  const moved = drag.moved;
+  drag = null;
+  handles.forEach(h => h.classList.remove('dragging'));
+  try { if (e) e.target.releasePointerCapture(e.pointerId); } catch (err) {}
+  if (!moved && allowClick) { setExpanded(true); armIdle(); }
+}
+
+handles.forEach(h => {
+  h.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    drag = { id: e.pointerId, x: e.screenX, y: e.screenY, moved: false };
+    h.classList.add('dragging');
+    try { h.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  h.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.screenX - drag.x, dy = e.screenY - drag.y;
+    if (!drag.moved) {
+      if (Math.abs(dx) + Math.abs(dy) < DRAG_MIN) return;   // 抖动：仍按点击处理
+      drag.moved = true;
+      setIgnore(false);
+    }
+    window.todoAPI.floatMoveBy(dx, dy);
+    drag.x = e.screenX; drag.y = e.screenY;
+    touch();
+  });
+  h.addEventListener('pointerup', (e) => endDrag(e, true));
+  h.addEventListener('pointercancel', (e) => endDrag(e, false));
 });
 // 卡片按钮
 $('fPin').addEventListener('click', () => {

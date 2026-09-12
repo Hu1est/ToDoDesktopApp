@@ -19,6 +19,14 @@ const USER_TYPES = {
   perfectionist:{name:'完美主义者',short:'不能出错',desc:'我要提前很久就收到分阶段提醒',freq:5,stages:[168,72,24,6,1]}
 };
 const VIEWS = { all:'全部任务', today:'今日到期', upcoming:'即将到期', overdue:'已逾期', done:'已完成' };
+/* 视图含义（用作自绘 tooltip，让范围一眼可见） */
+const VIEW_TIPS = {
+  all:'所有任务',
+  today:'今天 24 点前到期',
+  upcoming:'未来一周内到期（不含今天）',
+  overdue:'已过截止时间且未完成',
+  done:'已勾选完成'
+};
 
 /* ---------- 主题色预设（每个预设给出浅色/深色两套派生色） ---------- */
 const ACCENTS = {
@@ -151,6 +159,17 @@ function seed() {
   saveData();
 }
 
+/* ---------- 时间基准 ----------
+   今日到期： [今天 00:00, 明天 00:00)
+   即将到期： [明天 00:00, 今天+7 天 00:00)
+   两者用半开区间且首尾相接 —— 互不重叠，「今天起一周内」正好等于两者之和。 */
+const dueMs = t => new Date(t.due).getTime();
+function ranges() {
+  const d = new Date(); d.setHours(0,0,0,0);
+  const t0 = d.getTime();
+  return { today: t0, tomorrow: t0 + 864e5, week: t0 + 7*864e5 };
+}
+
 /* ---------- 统计 ---------- */
 function stats() {
   const now = Date.now(), ts = new Date(); ts.setHours(0,0,0,0);
@@ -166,13 +185,14 @@ function stats() {
 
 /* ---------- 视图计数 ---------- */
 function counts() {
-  const ts = new Date(); ts.setHours(0,0,0,0);
-  const te = ts.getTime() + 864e5, upEnd = ts.getTime() + 7*864e5;
+  const R = ranges();
+  const pending = state.todos.filter(t => !t.done);
+  const inRange = (t, a, b) => { const d = dueMs(t); return d >= a && d < b; };
   const data = {
     all: state.todos.length,
-    today: state.todos.filter(t => !t.done && new Date(t.due) >= ts && new Date(t.due) < te).length,
-    upcoming: state.todos.filter(t => !t.done && new Date(t.due) > ts && new Date(t.due) <= upEnd).length,
-    overdue: state.todos.filter(t => !t.done && new Date(t.due) < ts).length,
+    today: pending.filter(t => inRange(t, R.today, R.tomorrow)).length,
+    upcoming: pending.filter(t => inRange(t, R.tomorrow, R.week)).length,
+    overdue: pending.filter(t => dueMs(t) < R.today).length,
     done: state.todos.filter(t => t.done).length
   };
   ['all','today','upcoming','overdue','done'].forEach(k => {
@@ -184,13 +204,12 @@ function counts() {
 
 /* ---------- 过滤 ---------- */
 function filtered() {
+  const R = ranges();
   let list = [...state.todos];
-  const ts = new Date(); ts.setHours(0,0,0,0);
-  const te = ts.getTime() + 864e5, upEnd = ts.getTime() + 7*864e5;
   switch (state.view) {
-    case 'today': list = list.filter(t => !t.done && new Date(t.due) >= ts && new Date(t.due) < te); break;
-    case 'upcoming': list = list.filter(t => !t.done && new Date(t.due) > ts && new Date(t.due) <= upEnd); break;
-    case 'overdue': list = list.filter(t => !t.done && new Date(t.due) < ts); break;
+    case 'today': list = list.filter(t => !t.done && dueMs(t) >= R.today && dueMs(t) < R.tomorrow); break;
+    case 'upcoming': list = list.filter(t => !t.done && dueMs(t) >= R.tomorrow && dueMs(t) < R.week); break;
+    case 'overdue': list = list.filter(t => !t.done && dueMs(t) < R.today); break;
     case 'done': list = list.filter(t => t.done); break;
   }
   if (state.prio) list = list.filter(t => t.prio === state.prio);
@@ -267,9 +286,9 @@ function renderTasks() {
         '</div>' +
       '</div>' +
       '<div class="tactions">' +
-        '<button class="tact" data-action="notify" data-id="'+t.id+'" title="切换提醒">'+notifyIcon+'</button>' +
-        '<button class="tact" data-action="edit" data-id="'+t.id+'" title="编辑">'+icEdit+'</button>' +
-        '<button class="tact del" data-action="delete" data-id="'+t.id+'" title="删除">'+icTrash+'</button>' +
+        '<button class="tact" data-action="notify" data-id="'+t.id+'" data-tip="切换提醒">'+notifyIcon+'</button>' +
+        '<button class="tact" data-action="edit" data-id="'+t.id+'" data-tip="编辑">'+icEdit+'</button>' +
+        '<button class="tact del" data-action="delete" data-id="'+t.id+'" data-tip="删除">'+icTrash+'</button>' +
       '</div>';
     box.appendChild(el);
   });
@@ -378,7 +397,7 @@ function renderCatManager() {
     '<div class="cat-row">' +
       '<input class="cat-name" data-id="'+c.id+'" value="'+esc(c.n)+'" maxlength="12">' +
       '<span class="cat-count">' + state.todos.filter(t => t.cat === c.id).length + ' 项</span>' +
-      '<button class="cat-del" data-id="'+c.id+'" title="删除分类"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>' +
+      '<button class="cat-del" data-id="'+c.id+'" data-tip="删除分类"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>' +
     '</div>').join('');
   // 重命名
   box.querySelectorAll('.cat-name').forEach(inp => {
@@ -479,7 +498,7 @@ function toggleTask(id) {
   state.todos = state.todos.map(t => t.id===id ? {...t, done:!t.done} : t);
   saveData(); renderAll();
   const t = state.todos.find(x => x.id===id);
-  if (t && t.done) { soundPing(); notify('任务完成', '恭喜！您已完成任务：「'+t.title+'」'); }
+  if (t && t.done) { soundPing(); notify('任务完成', '已完成「'+t.title+'」'); }
 }
 async function deleteTask(id) {
   if (!(await window.todoAPI.confirm('确定删除该任务？','删除后无法恢复。'))) return;
@@ -638,7 +657,10 @@ function showLoginDialog(res) {
 
 /* ---------- 事件绑定 ---------- */
 function bindEvents() {
-  document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+  document.querySelectorAll('.nav-item').forEach(b => {
+    b.dataset.tip = VIEW_TIPS[b.dataset.view] || '';      // 视图范围说明（自绘 tooltip）
+    b.addEventListener('click', () => setView(b.dataset.view));
+  });
   document.querySelectorAll('#prioChips .chip').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('#prioChips .chip').forEach(x => x.classList.remove('active'));
     b.classList.add('active'); state.prio = b.dataset.prio; renderTasks();
@@ -740,18 +762,42 @@ function bindTitlebar() {
   if (max) max.addEventListener('click', () => window.todoAPI.winMaximize());
   if (close) close.addEventListener('click', () => window.todoAPI.winClose());
 }
-// 版本号（从当前构建起计，读取自 package.json）
-const VERSION_BASE = '1.0.0';   // 起始版本：自本次构建开始计数
+// 版本号（读取自 package.json）
 function bindVersion() {
   const el = $('tbVer');
   if (!el) return;
-  el.textContent = 'v' + VERSION_BASE;
-  window.todoAPI.getVersion().then(info => {
-    if (info && info.version) {
-      el.textContent = 'v' + info.version;
-      el.title = '版本 ' + info.version + ' · Electron ' + info.electron + (info.isPackaged ? ' · 便携版' : ' · 开发模式');
-    }
-  }).catch(() => {});
+  window.todoAPI.getVersion().then(v => { if (v) el.textContent = 'v' + v; }).catch(() => {});
+}
+
+/* ---------- 自绘 tooltip ----------
+   原生 title 的提示框在深色模式下仍是白底白边，因此统一改用 [data-tip] + 自绘浮层。
+   用事件委托，动态渲染出来的按钮（任务操作、分类删除等）自动生效。 */
+function initTooltips() {
+  const layer = $('tipLayer');
+  if (!layer) return;
+  const find = e => (e && e.target && e.target.closest) ? e.target.closest('[data-tip]') : null;
+  const hide = () => { layer.hidden = true; };
+  const show = (el) => {
+    layer.textContent = el.dataset.tip;
+    layer.hidden = false;
+    const r = el.getBoundingClientRect(), t = layer.getBoundingClientRect();
+    let top = r.bottom + 8;
+    if (top + t.height > window.innerHeight - 4) top = r.top - t.height - 8;   // 下方放不下就翻到上方
+    let left = r.left + r.width / 2 - t.width / 2;
+    left = Math.max(6, Math.min(left, window.innerWidth - t.width - 6));
+    layer.style.top = Math.max(4, top) + 'px';
+    layer.style.left = left + 'px';
+  };
+  document.addEventListener('mouseover', e => { const el = find(e); if (el) show(el); });
+  document.addEventListener('mouseout', e => {
+    const from = find(e);
+    if (!from) return;
+    const to = (e.relatedTarget && e.relatedTarget.closest) ? e.relatedTarget.closest('[data-tip]') : null;
+    if (to !== from) hide();          // 离开该元素（或移到别的元素）即隐藏
+  });
+  document.addEventListener('mousedown', hide);
+  window.addEventListener('blur', hide);
+  window.addEventListener('resize', hide);
 }
 
 /* ---------- 外观与主题色 UI ---------- */
@@ -761,7 +807,7 @@ function renderThemeUI() {
   const row = $('accentRow'); if (!row) return;
   const cur = state.settings.accent || 'indigo';
   row.innerHTML = Object.entries(ACCENTS).map(([k, a]) =>
-    '<button class="swatch' + (k === cur ? ' active' : '') + '" data-accent="'+k+'" title="'+a.n+'">' +
+    '<button class="swatch' + (k === cur ? ' active' : '') + '" data-accent="'+k+'">' +
       '<span style="background:linear-gradient(135deg,'+a.p+','+a.d+')"></span>' +
       '<em>'+a.n+'</em>' +
     '</button>').join('');
@@ -804,6 +850,7 @@ async function init() {
   await loadData();
   seed();
   bindEvents();
+  initTooltips();
   bindTrayActions();
   bindTitlebar();
   bindVersion();

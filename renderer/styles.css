@@ -298,6 +298,15 @@ body{display:flex;flex-direction:column}
 .empty-ic{width:52px;height:52px;margin:0 auto .7rem;color:var(--t3);opacity:.6}
 .empty-ic svg{width:100%;height:100%}
 
+/* ============ 自绘 tooltip ============
+   原生 title 的提示框由系统绘制，深色模式下仍是白底白边，因此统一改用自绘。
+   位置由 app.js 的 initTooltips() 计算（可自动避让窗口边缘）。 */
+.tip{position:fixed;z-index:400;max-width:min(280px,calc(100vw - 12px));
+  padding:.36rem .55rem;border-radius:6px;font-size:11.5px;line-height:1.2;white-space:nowrap;
+  background:#0a0c12;color:#e5e7eb;border:1px solid #2c3850;
+  box-shadow:0 6px 18px rgba(0,0,0,.3);pointer-events:none;animation:tipIn .12s ease-out}
+@keyframes tipIn{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+
 /* ============ 模态框 ============ */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;
   z-index:100;padding:1rem;backdrop-filter:blur(2px)}

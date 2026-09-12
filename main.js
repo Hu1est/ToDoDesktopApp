@@ -176,6 +176,38 @@ async function handleCloseRequest() {
  * ------------------------------------------------------------- */
 const FLOAT_W = 300;
 const FLOAT_H = 456;
+
+/* 悬浮窗位置：默认屏幕右下角；用户拖动后记住（floatPos），并限制在屏幕工作区内 */
+function defaultFloatPos() {
+  const wa = screen.getPrimaryDisplay().workArea;
+  return { x: wa.x + wa.width - FLOAT_W - 16, y: wa.y + wa.height - FLOAT_H - 16 };
+}
+function clampFloatPos(x, y) {
+  const wa = screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) }).workArea;
+  return {
+    x: Math.round(Math.min(Math.max(x, wa.x), wa.x + wa.width - FLOAT_W)),
+    y: Math.round(Math.min(Math.max(y, wa.y), wa.y + wa.height - FLOAT_H))
+  };
+}
+function savedFloatPos() {
+  const p = store.get('floatPos', null);
+  if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') return null;
+  return clampFloatPos(p.x, p.y);
+}
+let floatPosTimer = null;
+function saveFloatPos() {
+  clearTimeout(floatPosTimer);
+  floatPosTimer = null;
+  if (!floatWindow || floatWindow.isDestroyed()) return;
+  const [x, y] = floatWindow.getPosition();
+  store.set('floatPos', { x, y });
+}
+// 拖动过程中频繁写盘没有意义，停下后再记一次
+function scheduleFloatPosSave() {
+  clearTimeout(floatPosTimer);
+  floatPosTimer = setTimeout(saveFloatPos, 400);
+}
+
 function createFloatWindow() {
   if (floatWindow && !floatWindow.isDestroyed()) { floatWindow.show(); return; }
   floatWindow = new BrowserWindow({
@@ -200,9 +232,8 @@ function createFloatWindow() {
   });
   floatWindow.loadFile(path.join(__dirname, 'renderer', 'float.html'));
   floatWindow.setAlwaysOnTop(true, 'floating');
-  // 固定定位到屏幕右下角
-  const wa = screen.getPrimaryDisplay().workArea;
-  floatWindow.setPosition(wa.x + wa.width - FLOAT_W - 16, wa.y + wa.height - FLOAT_H - 16);
+  const pos = savedFloatPos() || defaultFloatPos();
+  floatWindow.setPosition(pos.x, pos.y);
   // 退出流程（isQuitting）时必须允许真正关闭，否则会阻塞 app.quit()
   floatWindow.on('close', (e) => {
     if (isQuitting) return;
@@ -379,13 +410,8 @@ function registerIpc() {
   ipcMain.on('win-close', () => { if (mainWindow) mainWindow.close(); });
   ipcMain.handle('win-is-maximized', () => !!(mainWindow && mainWindow.isMaximized()));
 
-  // 版本号（从当前构建起计）
-  ipcMain.handle('app-version', () => ({
-    version: app.getVersion(),
-    name: APP_NAME,
-    electron: process.versions.electron,
-    isPackaged: app.isPackaged
-  }));
+  // 版本号
+  ipcMain.handle('app-version', () => app.getVersion());
 
   // 悬浮窗
   ipcMain.handle('float-toggle-pin', () => {
@@ -409,6 +435,14 @@ function registerIpc() {
       floatWindow.setIgnoreMouseEvents(!!ignore, { forward: true });
     }
   });
+  // 拖动悬浮窗：按增量移动（渲染进程无需知道窗口坐标），实时限位并记住新位置
+  ipcMain.on('float-move-by', (e, dx, dy) => {
+    if (!floatWindow || floatWindow.isDestroyed()) return;
+    const [x, y] = floatWindow.getPosition();
+    const p = clampFloatPos(x + (Number(dx) || 0), y + (Number(dy) || 0));
+    floatWindow.setPosition(p.x, p.y);
+    scheduleFloatPosSave();
+  });
 
   // 退出操作（设置 → 退出操作，直接选择）
   ipcMain.handle('close-action-get', () => getCloseAction());
@@ -418,4 +452,4 @@ function registerIpc() {
 /* ---------- 生命周期 ---------- */
 // 后台常驻：即使窗口全部关闭也不退出，托盘持续运行（不调用 app.quit）
 app.on('window-all-closed', () => { if (isQuitting) app.quit(); });
-app.on('before-quit', () => { isQuitting = true; });
+app.on('before-quit', () => { isQuitting = true; if (floatPosTimer) saveFloatPos(); });

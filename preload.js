@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('todoAPI', {
   floatShow: () => ipcRenderer.invoke('float-show'),
   floatToggle: () => ipcRenderer.send('float-toggle'),
   floatSetIgnore: (ignore) => ipcRenderer.send('float-set-ignore', ignore),
+  floatMoveBy: (dx, dy) => ipcRenderer.send('float-move-by', dx, dy),
 
   /* ---------- 主进程 → 渲染进程 ---------- */
   onFloatNotify: (callback) => {
