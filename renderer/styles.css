@@ -19,8 +19,8 @@ html[data-theme="dark"]{
 html,body{height:100%}
 body{
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Roboto,sans-serif;
-  /* 注意：不要给 body 加 background 过渡——background 简写配合 CSS 变量切换时，
-     Chromium 会卡在过渡起点，导致切换到浅色后背景仍是深色。 */
+  /* 不要给 body 加 background 过渡：background 简写配合 CSS 变量切换时，
+     Chromium 会卡在过渡起点，导致切到浅色后背景仍是深色。 */
   background:var(--bg); color:var(--t); font-size:14px; line-height:1.5;
   overflow:hidden;
 }
@@ -36,10 +36,10 @@ button svg{pointer-events:none}
 ::-webkit-scrollbar-thumb:active{background:var(--primary);background-clip:content-box}
 ::-webkit-scrollbar-corner{background:transparent}
 /* 窄容器使用细滚动条 */
-.side-scroll::-webkit-scrollbar,.opt-list::-webkit-scrollbar,.cat-manager::-webkit-scrollbar,textarea::-webkit-scrollbar{width:8px}
-.opt-list,.cat-manager{max-height:260px;overflow-y:auto}
+.side-scroll::-webkit-scrollbar,.cat-manager::-webkit-scrollbar,textarea::-webkit-scrollbar{width:8px}
+.cat-manager{max-height:260px;overflow-y:auto}
 /* Firefox 系语义（Electron 下无副作用） */
-.main,.modal,.side-scroll,.tlist,#formCard,.fbody,.opt-list,.cat-manager,textarea{scrollbar-width:thin;scrollbar-color:var(--t3) transparent}
+.main,.modal,.side-scroll,.tlist,#formCard,.fbody,.cat-manager,textarea{scrollbar-width:thin;scrollbar-color:var(--t3) transparent}
 
 /* ============ 自绘标题栏（borderless） ============ */
 .titlebar{height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
@@ -65,7 +65,7 @@ body{display:flex;flex-direction:column}
 .side-scroll::-webkit-scrollbar{width:6px}
 .side-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
-/* ============ 提醒风格卡片（取代原先难懂的类型下拉） ============ */
+/* ============ 提醒风格卡片（侧边栏顶部） ============ */
 .style-card{display:flex;align-items:center;gap:.6rem;width:100%;text-align:left;
   padding:.65rem .7rem;border-radius:var(--radius-sm);border:1px solid var(--border);
   background:var(--primary-light);transition:.15s;flex-shrink:0;margin-bottom:.75rem}
@@ -228,16 +228,14 @@ body{display:flex;flex-direction:column}
 .cat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.35rem}
 .cat-opt{padding:.32rem;border-radius:8px;border:1px solid var(--border);font-size:12px;text-align:center;color:var(--t2);transition:.15s}
 .cat-opt.active{border-color:var(--primary);background:var(--primary-light);color:var(--primary);font-weight:600}
-.switch{display:flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none;font-size:13px;font-weight:500;color:var(--t)}
+.switch{display:inline-flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none;
+  font-size:13px;font-weight:500;color:var(--t);line-height:1;vertical-align:middle}
 .switch input{display:none;width:auto}
-.switch{display:inline-flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none;font-size:13px;font-weight:500;color:var(--t);line-height:1;vertical-align:middle}
 .switch .track{display:inline-block;width:38px;height:21px;flex:0 0 38px;border-radius:20px;background:var(--border);position:relative;transition:.2s;flex-shrink:0}
 .switch .track::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .switch input:checked+.track{background:var(--primary)}
 .switch input:checked+.track::after{left:19px}
 .hint{font-size:11px;color:var(--t3);margin-top:.25rem}
-.close-behavior{display:flex;align-items:center;gap:.6rem;justify-content:space-between;
-  background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:.5rem .7rem;font-size:12.5px;color:var(--t)}
 
 /* 外观分段控件 */
 .seg{display:flex;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:4px}
@@ -254,11 +252,6 @@ body{display:flex;flex-direction:column}
 .swatch:hover{border-color:var(--border)}
 .swatch.active{border-color:var(--primary);background:var(--primary-light)}
 .swatch.active em{color:var(--primary);font-weight:600}
-
-/* 提醒风格预览 */
-.style-preview{margin-top:.6rem;padding:.6rem .7rem;border-radius:9px;background:var(--primary-light);
-  border:1px solid var(--border);font-size:12px;color:var(--t);line-height:1.6}
-.style-preview b{color:var(--primary)}
 
 /* 分类管理 */
 .cat-manager{display:flex;flex-direction:column;gap:.4rem}
@@ -317,15 +310,6 @@ body{display:flex;flex-direction:column}
 .set-group{margin-bottom:.9rem}
 .set-group label{font-size:12px;font-weight:600;color:var(--t2);display:block;margin-bottom:.3rem}
 .set-group input[type=number]{width:100%;max-width:160px;padding:.45rem .6rem;border:1px solid var(--border);border-radius:8px;color:var(--t)}
-.opt-list{display:flex;flex-direction:column;gap:.5rem}
-.opt{display:flex;gap:.7rem;align-items:flex-start;padding:.7rem;border:2px solid var(--border);border-radius:var(--radius-sm);transition:.15s;cursor:pointer;text-align:left;width:100%}
-.opt:hover{border-color:var(--primary)}
-.opt.active{border-color:var(--primary);background:var(--primary-light)}
-.opt .oi{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0}
-.opt .oi svg{width:20px;height:20px}
-.opt h4{font-size:13px;color:var(--t)}
-.opt p{font-size:11.5px;color:var(--t2);margin-top:1px}
-.opt .ofreq{margin-left:auto;font-size:11px;color:var(--primary);font-weight:600;white-space:nowrap}
 
 /* ============ 加载界面（启动遮罩） ============ */
 .splash{position:fixed;inset:0;z-index:300;background:var(--bg);display:flex;align-items:center;justify-content:center;

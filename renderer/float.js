@@ -31,13 +31,7 @@ function applyFloatTheme(settings) {
   document.body.classList.toggle('light', !dark);
 }
 let lastSettings = {};
-if (window.matchMedia) {
-  const mq = window.matchMedia('(prefers-color-scheme: dark)');
-  const onSys = () => { if ((lastSettings.theme || 'system') === 'system') applyFloatTheme(lastSettings); };
-  if (mq.addEventListener) mq.addEventListener('change', onSys);
-  else if (mq.addListener) mq.addListener(onSys);
-}
-// 主进程推送的系统深浅色变化（比 matchMedia 事件可靠）
+// 系统深浅色变化由主进程 nativeTheme 推送（Electron 中 matchMedia 的 change 事件不触发）
 try {
   window.todoAPI.onSystemTheme(() => {
     if ((lastSettings.theme || 'system') === 'system') applyFloatTheme(lastSettings);
@@ -89,16 +83,17 @@ function pillAlert(title) {
 }
 
 /* 通知联动：保持当前形态（胶囊仍是胶囊，卡片仍是卡片） */
+let notifyTimer = null;
 function showNotify(title, body) {
   const el = $('island');
   $('notifyT').textContent = title || '任务提醒';
   $('notifyB').textContent = body || '';
   el.classList.add('notifying');
-  clearTimeout(window._nt);
+  clearTimeout(notifyTimer);
   if (expanded) {
     // 已是卡片：显示横幅，并延长空闲计时（让用户看完）
     armIdle();
-    window._nt = setTimeout(() => el.classList.remove('notifying'), 5000);
+    notifyTimer = setTimeout(() => el.classList.remove('notifying'), 5000);
   } else {
     // 保持胶囊形态：用胶囊文字提示，随后自动恢复
     pillAlert(title || '任务提醒');
@@ -224,13 +219,9 @@ $('fClose').addEventListener('click', () => {
 });
 $('fFoot').addEventListener('click', (e) => { if (e.target.id === 'fRefresh') { load(); armIdle(); } });
 
-/* 主进程事件（置顶状态 / 通知联动） */
-window.todoAPI.onFloatEvent((evt) => {
-  if (!evt) return;
-  if (evt === 'pinned') $('fPin').classList.add('pinned');
-  else if (evt === 'unpinned') $('fPin').classList.remove('pinned');
-  else if (typeof evt === 'object' && evt.type === 'notify') showNotify(evt.title, evt.body);
-  else if (typeof evt === 'object' && evt.type === 'show') load();
+/* 主进程推送的提醒（保持当前形态，不强行展开） */
+window.todoAPI.onFloatNotify((n) => {
+  if (n) showNotify(n.title, n.body);
 });
 
 load();

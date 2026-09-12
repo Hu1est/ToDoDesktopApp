@@ -17,7 +17,7 @@
   <div class="tb-controls">
     <button class="tb-btn" id="winMin" title="最小化"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
     <button class="tb-btn" id="winMax" title="最大化/还原"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg></button>
-    <button class="tb-btn tb-close" id="winClose" title="关闭（最小化到托盘）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    <button class="tb-btn tb-close" id="winClose" title="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
   </div>
 </div>
 
@@ -252,7 +252,7 @@
     <div class="set-group">
       <label>提醒方式</label>
       <label class="switch"><input type="checkbox" id="setSound" checked><span class="track"></span> 声音提示</label>
-      <div class="hint">提醒会以「应用内弹窗 + 灵动岛横幅」呈现（已不含系统级通知）</div>
+      <div class="hint">提醒会以「应用内弹窗 + 灵动岛横幅」呈现，不调用系统通知</div>
     </div>
     <div class="set-group">
       <label>分类管理</label>
@@ -263,14 +263,14 @@
       </div>
       <div class="hint">分类用于任务归档与筛选；删除分类时，其下任务会归入「其他」</div>
     </div>
-    <div class="set-group"><label>后台常驻</label><label class="switch"><input type="checkbox" id="setTray" checked><span class="track"></span> 关闭窗口保留在后台</label><div class="hint">关闭窗口不退出，托盘图标后台运行</div></div>
     <div class="set-group">
-      <label>关闭窗口行为</label>
-      <div class="close-behavior">
-        <span id="closeActionText">尚未选择（下次关闭时会询问）</span>
-        <button class="btn btn-ghost" id="closeActionReset" style="padding:.3rem .6rem;font-size:12px">重新询问</button>
+      <label>退出操作</label>
+      <div class="seg" id="closeActionSeg">
+        <button class="seg-btn" data-act="ask">每次询问</button>
+        <button class="seg-btn" data-act="tray">后台常驻</button>
+        <button class="seg-btn" data-act="quit">彻底退出</button>
       </div>
-      <div class="hint">首次关闭窗口时会询问「后台常驻 / 彻底退出」，并记住你的选择</div>
+      <div class="hint">点关闭按钮时执行：后台常驻＝隐藏窗口、留在托盘继续提醒；彻底退出＝结束进程。选好即生效，无需保存</div>
     </div>
     <div class="set-group">
       <label>数据</label>

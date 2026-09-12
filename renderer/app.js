@@ -44,14 +44,7 @@ function applyTheme() {
   rs.setProperty('--primary-light', dark ? a.ld : a.l);
   rs.setProperty('--on-primary', '#fff');
 }
-// 系统深浅色变化时，若处于“跟随系统”则实时切换
-// 优先用主进程推送（可靠）；matchMedia change 作为兜底。
-if (window.matchMedia) {
-  const mq = window.matchMedia('(prefers-color-scheme: dark)');
-  const onChange = () => { if ((state.settings.theme || 'system') === 'system') applyTheme(); };
-  if (mq.addEventListener) mq.addEventListener('change', onChange);
-  else if (mq.addListener) mq.addListener(onChange);
-}
+/* 系统深浅色变化由主进程 nativeTheme 推送（见 bindSystemTheme） */
 function bindSystemTheme() {
   try {
     window.todoAPI.onSystemTheme(() => {
@@ -65,11 +58,21 @@ function stageText(h) {
   if (h >= 24) { const d = h/24; return (Number.isInteger(d) ? d : d.toFixed(1)) + ' 天前'; }
   return h + ' 小时前';
 }
+/* 提前小时数 → 剩余时长文案（用于「还有 X 到期」） */
+function remainText(h) {
+  if (h >= 24) { const d = h/24; return (Number.isInteger(d) ? d : d.toFixed(1)) + ' 天'; }
+  return h + ' 小时';
+}
 
 /* ---------- 全局状态 ---------- */
+/* 会被持久化的设置项；历史版本遗留字段在载入时由 normalizeSettings() 剔除 */
+const DEFAULT_SETTINGS = {
+  userType:'organized', leadMin:10, sound:true,
+  categories: DEFAULT_CATS.slice(), theme:'system', accent:'indigo'
+};
 let state = {
   todos: [],
-  settings: { userType:'organized', leadMin:10, sound:true, tray:true, categories: DEFAULT_CATS.slice(), theme:'system', accent:'indigo' },
+  settings: { ...DEFAULT_SETTINGS },
   view:'all', prio:'', cat:'', search:''
 };
 let editingId = null;
@@ -94,12 +97,39 @@ const pad = n => String(n).padStart(2,'0');
 const fmtDate = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+/* ---------- 设置归一化：剔除历史遗留字段并修正非法值 ---------- */
+function normalizeSettings(raw) {
+  const src = (raw && typeof raw === 'object') ? raw : {};
+  const out = { ...DEFAULT_SETTINGS };
+  if (USER_TYPES[src.userType]) out.userType = src.userType;
+  const lead = parseInt(src.leadMin, 10);
+  out.leadMin = Number.isFinite(lead) ? Math.min(1440, Math.max(1, lead)) : DEFAULT_SETTINGS.leadMin;
+  out.sound = src.sound !== false;
+  if (['system', 'light', 'dark'].includes(src.theme)) out.theme = src.theme;
+  if (ACCENTS[src.accent]) out.accent = src.accent;
+  if (Array.isArray(src.categories)) {
+    const list = src.categories
+      .filter(c => c && typeof c.id === 'string' && typeof c.n === 'string' && c.n.trim())
+      .map(c => ({ id: c.id, n: c.n }));
+    if (list.length) out.categories = list;
+  }
+  return out;
+}
+
 /* ---------- 数据持久化（经主进程写入本地文件） ---------- */
 async function loadData() {
   try {
     const data = await window.todoAPI.loadData();
-    if (data && data.todos && Array.isArray(data.todos)) state.todos = data.todos;
-    if (data && data.settings) state.settings = { ...state.settings, ...data.settings };
+    if (data && Array.isArray(data.todos)) state.todos = data.todos;
+    const raw = data && data.settings;
+    const normalized = normalizeSettings(raw);
+    // 磁盘上还有历史字段（或值不合法）时回写一次，保证数据文件与当前版本一致
+    const stale = !!raw && (
+      Object.keys(raw).length !== Object.keys(normalized).length ||
+      Object.keys(normalized).some(k => JSON.stringify(raw[k]) !== JSON.stringify(normalized[k]))
+    );
+    state.settings = normalized;
+    if (stale) await saveData();
   } catch (error) { console.warn('数据加载失败:', error); }
 }
 async function saveData() {
@@ -484,8 +514,8 @@ function soundPing() {
   } catch (err) {}
 }
 
-/* ---------- 应用内提醒（已移除系统级通知） ----------
-   提醒呈现方式：应用内 toast + 灵动岛横幅（由主进程转发给悬浮窗） */
+/* ---------- 应用内提醒（不使用系统级通知） ----------
+   呈现方式：应用内 toast + 灵动岛横幅（由主进程转发给悬浮窗） */
 function notify(title, body) {
   try { toast(title + '\n' + body, '', 5200); } catch (err) {}
   try { window.todoAPI.notify(title, body); } catch (err) {}
@@ -507,8 +537,7 @@ function scheduleCheck() {
         const key = t.id+'-'+stage;
         if (!firedReminders.has(key)) {
           firedReminders.add(key);
-          const h = stage >= 24 ? (stage/24)+'天前' : stage+'小时前';
-          notify('任务即将截止', '「'+t.title+'」将于 '+h+' 到期（'+new Date(t.due).toLocaleString()+'）');
+          notify('任务即将截止', '「'+t.title+'」还有 '+remainText(stage)+'到期（'+new Date(t.due).toLocaleString()+'）');
         }
       }
     });
@@ -525,19 +554,18 @@ function setView(v) {
 function renderAll() { renderStats(); counts(); renderTasks(); renderUserType(); renderCatChips(); }
 
 /* ---------- 设置：未保存更改跟踪 ---------- */
+/* 只有「提醒提前量 / 声音提示」需要点保存；退出操作与主题是即时生效的 */
 let settingsSnapshot = null;
 function snapshotSettings() {
   settingsSnapshot = {
     leadMin: Math.max(1, parseInt($('setLead').value) || 10),
-    sound: $('setSound').checked,
-    tray: $('setTray').checked
+    sound: $('setSound').checked
   };
 }
 function settingsDirty() {
   if (!settingsSnapshot) return false;
   return (Math.max(1, parseInt($('setLead').value) || 10) !== settingsSnapshot.leadMin)
-      || ($('setSound').checked !== settingsSnapshot.sound)
-      || ($('setTray').checked !== settingsSnapshot.tray);
+      || ($('setSound').checked !== settingsSnapshot.sound);
 }
 function markDirtyUI() {
   const h = $('dirtyHint');
@@ -547,7 +575,7 @@ function markDirtyUI() {
 async function requestCloseSettings() {
   if (!settingsDirty()) { closeSettings(); return; }
   let r = 'cancel';
-  try { r = await window.todoAPI.confirmSave('设置有未保存的更改', '「提醒提前量 / 声音提示 / 后台常驻」的改动尚未保存。是否保存后再关闭？'); }
+  try { r = await window.todoAPI.confirmSave('设置有未保存的更改', '「提醒提前量 / 声音提示」的改动尚未保存。是否保存后再关闭？'); }
   catch (e) { r = 'cancel'; }
   if (r === 'save') saveSettings();
   else if (r === 'discard') closeSettings();
@@ -559,31 +587,33 @@ function openSettings() {
   renderUserType();
   renderCatManager();
   renderThemeUI();
+  renderCloseActionUI();
   $('setLead').value = state.settings.leadMin;
   $('setSound').checked = state.settings.sound;
-  $('setTray').checked = state.settings.tray;
-  window.todoAPI.getLogin().then(r => { const v = r && r.enabled; $('loginBtn').dataset.active = v; $('loginBtn').classList.toggle('active', v); });
-  refreshCloseActionText();
+  window.todoAPI.getLogin().then(r => {
+    const on = !!(r && r.enabled);
+    $('loginBtn').dataset.active = on;
+    $('loginBtn').classList.toggle('active', on);
+  });
   $('settingsModal').hidden = false;
   snapshotSettings();   // 记录快照，用于判断是否有未保存更改
   markDirtyUI();
 }
-// 显示当前“关闭窗口行为”的记忆值
-function refreshCloseActionText() {
-  window.todoAPI.getCloseAction().then(v => {
-    const el = $('closeActionText');
-    if (!el) return;
-    el.textContent = v === 'tray' ? '已记住：后台常驻（托盘）'
-                   : v === 'quit' ? '已记住：彻底退出'
-                   : '尚未选择（下次关闭时会询问）';
-  });
+/* 退出操作：设置里直接选择，选中即写入主进程（无需保存） */
+const CLOSE_ACTION_LABEL = { ask:'每次询问', tray:'后台常驻', quit:'彻底退出' };
+function renderCloseActionUI(current) {
+  const paint = v => {
+    const cur = CLOSE_ACTION_LABEL[v] ? v : 'ask';
+    document.querySelectorAll('#closeActionSeg .seg-btn')
+      .forEach(b => b.classList.toggle('active', b.dataset.act === cur));
+  };
+  if (current) { paint(current); return; }
+  window.todoAPI.getCloseAction().then(paint).catch(() => paint('ask'));
 }
 function closeSettings(){ $('settingsModal').hidden = true; settingsSnapshot = null; }
 function saveSettings() {
-  // 提醒风格由专属界面管理；标签页里的字段在这里保存
   state.settings.sound = $('setSound').checked;
   state.settings.leadMin = Math.max(1, parseInt($('setLead').value) || 10);
-  state.settings.tray = $('setTray').checked;
   firedReminders.clear();
   saveData(); renderAll(); updateNotifyHint();
   closeSettings(); toast('设置已保存');
@@ -593,22 +623,17 @@ function saveSettings() {
 function toggleLogin() {
   const wasOn = $('loginBtn').dataset.active === 'true';
   window.todoAPI.setLogin(!wasOn).then(res => {
-    const nowOn = res && res.enabled;
-    $('loginBtn').dataset.active = nowOn; $('loginBtn').classList.toggle('active', nowOn);
-    if (nowOn) {
-      toast('已开启开机自启');
-      showLoginDialog(res); // 显示残留文件详细说明
-    } else {
-      toast('已关闭开机自启');
-      showLoginDialog(res); // 说明副本文件删除结果
-    }
+    const nowOn = !!(res && res.enabled);
+    $('loginBtn').dataset.active = nowOn;
+    $('loginBtn').classList.toggle('active', nowOn);
+    toast(nowOn ? '已开启开机自启' : '已关闭开机自启');
+    showLoginDialog(res);   // 用原生对话框说明固定副本文件的生成 / 清理结果
   });
 }
 
-// 用原生对话框展示自启的残留文件说明（长文本、可换行、不溢出）
+// 自启固定副本的长文本说明（原生对话框：可换行、不溢出）
 function showLoginDialog(res) {
-  if (!res || !res.message) return;
-  window.todoAPI.alertInfo('开机自启', res.message);
+  if (res && res.message) window.todoAPI.alertInfo('开机自启', res.message);
 }
 
 /* ---------- 事件绑定 ---------- */
@@ -659,28 +684,26 @@ function bindEvents() {
   $('settingsClose').addEventListener('click', requestCloseSettings);
   $('settingsModal').addEventListener('click', (e) => { if (e.target === $('settingsModal')) requestCloseSettings(); });
   // 追踪未保存更改
-  ['setLead','setSound','setTray'].forEach(id => {
+  ['setLead','setSound'].forEach(id => {
     const el = $(id); if (!el) return;
     el.addEventListener('change', markDirtyUI);
     el.addEventListener('input', markDirtyUI);
   });
-  $('closeActionReset').addEventListener('click', () => {
-    window.todoAPI.setCloseAction(null).then(() => {
-      refreshCloseActionText();
-      toast('已重置，下次关闭窗口时会重新询问');
+  // 退出操作：直接选择，选中即生效
+  document.querySelectorAll('#closeActionSeg .seg-btn').forEach(b => b.addEventListener('click', () => {
+    window.todoAPI.setCloseAction(b.dataset.act).then(v => {
+      renderCloseActionUI(v);
+      toast('退出操作：' + (CLOSE_ACTION_LABEL[v] || CLOSE_ACTION_LABEL.ask));
     });
-  });
-  $('trayBtn').addEventListener('click', () => { window.todoAPI.minimizeToTray(); });
-  $('floatBtn').addEventListener('click', () => { window.todoAPI.floatToggle(); });
+  }));
+  $('trayBtn').addEventListener('click', () => window.todoAPI.minimizeToTray());
+  $('floatBtn').addEventListener('click', () => window.todoAPI.floatToggle());
   $('loginBtn').addEventListener('click', toggleLogin);
   $('exportBtn').addEventListener('click', exportData);
   $('openDataDirBtn').addEventListener('click', () => window.todoAPI.openDataDir());
   $('clearDataBtn').addEventListener('click', () => {
     window.todoAPI.confirm('清空所有任务','此操作不可恢复。').then(a => { if (a) { state.todos=[]; saveData(); renderAll(); toast('所有任务已清空'); } });
   });
-  document.querySelectorAll('#userTypeOptions .opt').forEach(o => o.addEventListener('click', () => {
-    document.querySelectorAll('#userTypeOptions .opt').forEach(x => x.classList.remove('active')); o.classList.add('active');
-  }));
   $('taskList').addEventListener('click', e => {
     const btn = e.target.closest('.tact,.tcheck');
     if (!btn) return;
@@ -788,6 +811,7 @@ async function init() {
   bindSystemTheme();
   applyTheme();
   renderThemeUI();   // 让设置里的主题色色板一开始就是就绪状态
+  renderCloseActionUI();
   renderAll();
   renderCatGrid();
   // 表单卡片默认隐藏，仅点击“新建任务”后出现

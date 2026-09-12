@@ -1,8 +1,9 @@
 /**
  * 智能待办 · Electron 主进程
- * 功能：窗口管理、系统托盘、后台常驻、开机自启、单实例锁、系统通知
+ * 职责：主窗口与灵动岛悬浮窗、系统托盘常驻、关闭行为、开机自启、单实例锁、数据持久化
  */
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell, nativeTheme } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell, nativeTheme, screen } = require('electron');
+const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -23,7 +24,6 @@ let mainWindow = null;
 let floatWindow = null;
 let tray = null;
 let isQuitting = false;
-let trayEnabled = true;
 
 const APP_NAME = '智能待办';
 
@@ -86,9 +86,9 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
-  // 关闭行为：首次关闭询问「彻底退出 / 后台常驻」，选择被记住，可在设置中修改
+  // 关闭行为：按「设置 → 退出操作」执行（后台常驻 / 彻底退出 / 每次询问）
   mainWindow.on('close', (e) => {
-    if (isQuitting || !trayEnabled) return;
+    if (isQuitting) return;          // 正在退出 → 放行
     e.preventDefault();
     handleCloseRequest();
   });
@@ -112,10 +112,13 @@ function saveWindowState() {
 }
 
 /* -------------------------------------------------------------
- * 关闭行为：首次关闭时询问用户「后台常驻」还是「彻底退出」，
- * 选择结果被记住（closeAction），后续关闭直接按记忆执行。
- * 可在设置中重置（close-action-set null）。
+ * 退出操作（设置 → 退出操作，可直接选择，选择后立即生效）
+ *   'tray' 后台常驻：窗口隐藏，托盘继续运行并按时提醒
+ *   'quit' 彻底退出：结束进程
+ *   'ask'  每次询问：每次关闭都弹选择框
  * ------------------------------------------------------------- */
+const CLOSE_ACTIONS = ['ask', 'tray', 'quit'];
+
 // 统一退出入口：先标记 isQuitting（放行窗口的 close 拦截），再延后退出。
 // 不要在 close 事件处理器内同步调用 app.quit()，否则退出序列会卡住。
 function quitApp() {
@@ -123,43 +126,53 @@ function quitApp() {
   setImmediate(() => app.quit());
 }
 
-function getCloseAction() { return store.get('closeAction', null); }
-function setCloseAction(v) { store.set('closeAction', v); }
+function getCloseAction() {
+  const v = store.get('closeAction', 'ask');
+  return CLOSE_ACTIONS.includes(v) ? v : 'ask';
+}
+function setCloseAction(v) {
+  const next = CLOSE_ACTIONS.includes(v) ? v : 'ask';
+  store.set('closeAction', next);
+  return next;
+}
 
+let closeAsking = false;
 async function handleCloseRequest() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  const saved = getCloseAction();
 
-  if (saved === 'tray') { mainWindow.hide(); return; }
-  if (saved === 'quit') { quitApp(); return; }
+  const action = getCloseAction();
+  if (action === 'tray') { mainWindow.hide(); return; }
+  if (action === 'quit') { quitApp(); return; }
+  if (closeAsking) return;             // 询问框已弹出：忽略重复触发
+  closeAsking = true;
 
-  // 首次关闭：询问
-  const r = await dialog.showMessageBox(mainWindow, {
-    type: 'question',
-    buttons: ['后台常驻', '彻底退出', '取消'],
-    defaultId: 0,
-    cancelId: 2,
-    noLink: true,
-    title: '关闭窗口',
-    message: '关闭窗口后要如何处理？',
-    detail: '后台常驻：程序继续在系统托盘中运行，仍会按时提醒，可随时唤醒。\n彻底退出：结束程序进程，不再接收任何提醒。\n\n本次选择会被记住，可在「设置」中修改。',
-    checkboxLabel: '记住我的选择',
-    checkboxChecked: true
-  });
+  try {
+    const r = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['后台常驻', '彻底退出', '取消'],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+      title: '关闭窗口',
+      message: '关闭窗口后要如何处理？',
+      detail: '后台常驻：窗口隐藏，程序继续在系统托盘中运行并按时提醒。\n' +
+              '彻底退出：结束程序进程，不再接收提醒。\n\n' +
+              '想让程序按固定方式直接执行、不再询问，可在「设置 → 退出操作」中选择。'
+    });
 
-  if (r.response === 2) return;                    // 取消：什么都不做（窗口不关）
-  const choice = r.response === 0 ? 'tray' : 'quit';
-  if (r.checkboxChecked) setCloseAction(choice);
-  if (choice === 'tray') mainWindow.hide();
-  else { quitApp(); }
+    if (r.response === 0) { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide(); }
+    else if (r.response === 1) quitApp();
+    // r.response === 2（取消）：保持窗口打开
+  } finally {
+    closeAsking = false;
+  }
 }
 
 /* -------------------------------------------------------------
  * 悬浮窗（灵动岛药丸，always-on-top）
- * 设计说明：窗口尺寸固定不变（药丸/卡片切换只靠 CSS 动画），
- * 因为 resizable:false 的窗口在 Windows 上无法用 setSize 改变大小，
- * 这正是此前“切换胶囊无效”的根因。固定尺寸 + CSS 过渡 = 切换可靠且带动画。
- * 关闭窗口阴影（hasShadow:false）并去掉 CSS box-shadow，避免透明窗口四角出现阴影。
+ * 窗口尺寸固定，药丸↔卡片只改 CSS 类做过渡动画：resizable:false 的窗口
+ * 在 Windows 上无法用 setSize 改变大小，固定尺寸才是可靠方案。
+ * hasShadow:false + CSS 无 box-shadow，避免透明窗口四角出现阴影。
  * ------------------------------------------------------------- */
 const FLOAT_W = 300;
 const FLOAT_H = 456;
@@ -188,12 +201,11 @@ function createFloatWindow() {
   floatWindow.loadFile(path.join(__dirname, 'renderer', 'float.html'));
   floatWindow.setAlwaysOnTop(true, 'floating');
   // 固定定位到屏幕右下角
-  const { screen } = require('electron');
   const wa = screen.getPrimaryDisplay().workArea;
   floatWindow.setPosition(wa.x + wa.width - FLOAT_W - 16, wa.y + wa.height - FLOAT_H - 16);
-  // 注意：退出流程（isQuitting）时必须允许真正关闭，否则会阻塞 app.quit()
+  // 退出流程（isQuitting）时必须允许真正关闭，否则会阻塞 app.quit()
   floatWindow.on('close', (e) => {
-    if (isQuitting) return;          // 正在退出 → 放行
+    if (isQuitting) return;
     e.preventDefault();
     floatWindow.hide();
   });
@@ -202,11 +214,12 @@ function createFloatWindow() {
 function showFloatWindow() { if (!floatWindow || floatWindow.isDestroyed()) createFloatWindow(); floatWindow.show(); }
 function hideFloatWindow() { if (floatWindow && !floatWindow.isDestroyed()) floatWindow.hide(); }
 function toggleFloatWindow() { if (floatWindow && floatWindow.isVisible()) hideFloatWindow(); else showFloatWindow(); }
-// 通知联动：推送事件让浮窗展开并显示横幅
+// 提醒联动：把提醒推给悬浮窗（形态保持不变）。
+// 悬浮窗被用户关闭时不强行唤起，避免弹回一个已被关掉的窗口。
 function floatNotify(title, body) {
-  if (!floatWindow || floatWindow.isDestroyed()) return;
-  floatWindow.webContents.send('float-event', { type: 'notify', title, body });
-  floatWindow.show();
+  if (!floatWindow || floatWindow.isDestroyed() || !floatWindow.isVisible()) return false;
+  floatWindow.webContents.send('float-notify', { title, body });
+  return true;
 }
 
 /* ---------- 系统托盘 ---------- */
@@ -232,7 +245,10 @@ function buildTrayMenu() {
       label: '开机自动启动',
       type: 'checkbox',
       checked: login,
-      click: (item) => setLoginItem(item.checked)
+      click: (item) => {
+        setLogin(item.checked);
+        if (tray) tray.setContextMenu(buildTrayMenu());
+      }
     },
     { type: 'separator' },
     { label: '退出', click: () => quitApp() }
@@ -256,13 +272,10 @@ function showMainWindow() {
 
 /* -------------------------------------------------------------
  * 开机自启（避免便携版自解压到 %TEMP% 的问题）
- * 便携版每次运行都会解压到临时目录，若用 app.setLoginItemSettings
- * 会把注册项指向临时的、重启即失效的路径。因此这里改为：
- *   1) 把便携 exe 复制一份到固定目录 %APPDATA%\SmartTodoDesktop\
- *   2) 用注册表 Run 键指向该固定副本
- * 开机时从固定副本启动，不受 %TEMP% 清理影响。
+ * 便携版每次运行都会解压到临时目录，直接把 Run 键指向该路径重启即失效。
+ * 因此：先把便携 exe 复制到固定目录 %APPDATA%\SmartTodoDesktop\，
+ * 再让注册表 Run 键指向这份固定副本。
  * ------------------------------------------------------------- */
-const { execFileSync } = require('child_process');
 const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 const RUN_NAME = 'SmartTodoDesktop';
 
@@ -300,15 +313,10 @@ function setLogin(enabled) {
   return { enabled: getLogin(), fixedFile: installExe(), fixedExists: fixedCopyExists(), message };
 }
 
-function setLoginItem(enabled) { // 保留别名供托盘菜单使用
-  setLogin(enabled);
-  if (tray) tray.setContextMenu(buildTrayMenu());
-}
-
 /* ---------- IPC 通信 ---------- */
 function registerIpc() {
-  // 应用内提醒（已移除系统级通知）：仅联动灵动岛横幅，toast 由渲染进程显示
-  ipcMain.handle('float-notify', (e, { title, body }) => { floatNotify(title, body); return true; });
+  // 应用内提醒（不使用系统级通知）：联动灵动岛横幅 + 渲染进程 toast
+  ipcMain.handle('float-notify', (e, { title, body }) => floatNotify(title, body));
 
   // 数据读写（持久化到本地文件）
   ipcMain.handle('data-load', () => {
@@ -325,12 +333,6 @@ function registerIpc() {
   // 开机自启查询/设置
   ipcMain.handle('login-get', () => ({ enabled: getLogin(), fixedFile: installExe(), fixedExists: fixedCopyExists() }));
   ipcMain.handle('login-set', (e, enabled) => setLogin(enabled));
-
-  // 托盘常驻开关
-  ipcMain.handle('tray-set', (e, enabled) => {
-    trayEnabled = enabled;
-    return trayEnabled;
-  });
 
   // 最小化到托盘
   ipcMain.on('minimize-tray', () => { if (mainWindow) mainWindow.hide(); });
@@ -408,9 +410,9 @@ function registerIpc() {
     }
   });
 
-  // 关闭行为（首次关闭的选择）读取 / 重置
+  // 退出操作（设置 → 退出操作，直接选择）
   ipcMain.handle('close-action-get', () => getCloseAction());
-  ipcMain.handle('close-action-set', (e, v) => { setCloseAction(v); return getCloseAction(); });
+  ipcMain.handle('close-action-set', (e, v) => setCloseAction(v));
 }
 
 /* ---------- 生命周期 ---------- */
