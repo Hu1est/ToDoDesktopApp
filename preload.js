@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('todoAPI', {
 
   /* ---------- 稍后提醒 ---------- */
   snoozeSet: (ids, ms) => ipcRenderer.invoke('snooze-set', { ids, ms }),
+  snoozeClear: (ids) => ipcRenderer.invoke('snooze-clear', { ids }),
 
   /* ---------- 退出操作 ---------- */
   getCloseAction: () => ipcRenderer.invoke('close-action-get'),
@@ -79,5 +80,11 @@ contextBridge.exposeInMainWorld('todoAPI', {
     const handler = (event, payload) => callback(payload);
     ipcRenderer.on('app-toast', handler);
     return () => ipcRenderer.removeListener('app-toast', handler);
+  },
+  // 稍后提醒记录变化（新增 / 取消 / 到点消费）
+  onSnoozeChanged: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('snooze-changed', handler);
+    return () => ipcRenderer.removeListener('snooze-changed', handler);
   }
 });

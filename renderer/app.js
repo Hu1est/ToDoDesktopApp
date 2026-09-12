@@ -81,6 +81,7 @@ const DEFAULT_SETTINGS = {
 let state = {
   todos: [],
   settings: { ...DEFAULT_SETTINGS },
+  snooze: {},            // 稍后提醒记录：{ 任务id: 恢复时刻 }，由主进程维护
   view:'all', prio:'', cat:'', search:''
 };
 let editingId = null;
@@ -128,6 +129,7 @@ async function loadData() {
   try {
     const data = await window.todoAPI.loadData();
     if (data && Array.isArray(data.todos)) state.todos = data.todos;
+    state.snooze = (data && data.snooze) || {};
     const raw = data && data.settings;
     const normalized = normalizeSettings(raw);
     // 磁盘上还有历史字段（或值不合法）时回写一次，保证数据文件与当前版本一致
@@ -266,6 +268,19 @@ const icTrash = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 const icCheck = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
 const icEmpty = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>';
 
+/* 稍后提醒剩余时间 → 简短文案（任务行上的标记） */
+function snoozeText(untilMs) {
+  const mins = Math.round((untilMs - Date.now()) / 60000);
+  if (mins <= 0) return '即将';
+  if (mins < 60) return mins + ' 分钟';
+  const d = new Date(untilMs);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const day = new Date(untilMs); day.setHours(0,0,0,0);
+  const days = Math.round((day - today) / 864e5);
+  const hmTxt = d.getHours() + ':' + pad(d.getMinutes());
+  return (days <= 0 ? '' : days === 1 ? '明天 ' : (d.getMonth()+1) + '/' + d.getDate() + ' ') + hmTxt;
+}
+
 function renderTasks() {
   const list = filtered();
   $('listCount').textContent = list.length + ' / ' + state.todos.length + ' 项';
@@ -280,6 +295,11 @@ function renderTasks() {
     el.className = 'titem' + (t.done ? ' done' : '');
     const tagHtml = (t.tags || []).slice(0,3).map(x => '<span class="tag">'+esc(x)+'</span>').join('');
     const notifyIcon = t.notify ? icNotification : icBellOff;
+    // 已点过「稍后提醒」的任务带一个可点击标记，点它即取消
+    const sn = state.snooze && state.snooze[t.id];
+    const snBadge = sn
+      ? '<button class="badge b-snooze" data-action="unsnooze" data-id="'+t.id+'" data-tip="点击取消稍后提醒">稍后 '+snoozeText(sn)+'</button>'
+      : '';
     el.innerHTML =
       '<button class="tcheck" data-action="toggle" data-id="'+t.id+'">'+(t.done?icCheck:'')+'</button>' +
       '<div class="tbody">' +
@@ -289,6 +309,7 @@ function renderTasks() {
           '<span class="badge b-priority" style="color:'+prio.c+';background:'+prio.c+'18">'+prio.n+'</span>' +
           '<span class="badge">'+esc(catN)+'</span>' +
           '<span class="badge b-due '+di.cls+'">'+di.text+'</span>' +
+          snBadge +
           tagHtml +
         '</div>' +
       '</div>' +
@@ -299,6 +320,15 @@ function renderTasks() {
       '</div>';
     box.appendChild(el);
   });
+}
+
+/* 取消稍后提醒（任务行上的标记 / 托盘菜单） */
+async function cancelSnooze(id) {
+  const t = state.todos.find(x => x.id === id);
+  try { await window.todoAPI.snoozeClear([id]); } catch (e) {}
+  if (state.snooze) delete state.snooze[id];
+  renderTasks();
+  toast('已取消稍后提醒' + (t ? '：「' + t.title + '」' : ''));
 }
 
 /* 提醒风格卡片（侧边栏顶部） */
@@ -725,13 +755,14 @@ function bindEvents() {
     window.todoAPI.confirm('清空所有任务','此操作不可恢复。').then(a => { if (a) { state.todos=[]; saveData(); renderAll(); toast('所有任务已清空'); } });
   });
   $('taskList').addEventListener('click', e => {
-    const btn = e.target.closest('.tact,.tcheck');
+    const btn = e.target.closest('.tact,.tcheck,.b-snooze');
     if (!btn) return;
     const act = btn.dataset.action, id = btn.dataset.id;
     if (act==='toggle') toggleTask(id);
     else if (act==='delete') deleteTask(id);
     else if (act==='edit') { const t = state.todos.find(x => x.id===id); if (t) openEdit(t); }
     else if (act==='notify') toggleNotify(id);
+    else if (act==='unsnooze') cancelSnooze(id);
   });
 }
 
@@ -753,6 +784,13 @@ function bindTrayActions() {
   });
   // 主进程发来的普通提示（如「已稍后提醒」）
   try { window.todoAPI.onToast((msg) => { if (msg) toast(msg.title + '\n' + msg.body); }); } catch (e) {}
+  // 稍后提醒记录变化（新增 / 取消 / 到点消费）→ 刷新任务行上的标记
+  try {
+    window.todoAPI.onSnoozeChanged(async () => {
+      await loadData();
+      renderTasks();
+    });
+  } catch (e) {}
 }
 
 /* ---------- 无边框标题栏 ---------- */

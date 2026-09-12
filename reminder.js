@@ -23,6 +23,18 @@ const DEFAULT_TYPE = 'organized';
 const CATCHUP_MS = 12 * 3600e3;     // 最多补发多久以内错过的提醒
 const FIRED_TTL_MS = 60 * 864e5;    // 已触发记录的保留时长
 const SNOOZE_TTL_MS = 7 * 864e5;    // 稍后提醒记录的保留时长（防止无限堆积）
+const DDL_MARGIN_MS = 60e3;         // 稍后提醒最晚停在截止前 1 分钟（保证 DDL 前仍会提醒）
+
+/**
+ * 计算「稍后提醒」的实际恢复时刻
+ * 剩余时间比想推迟的时间还短时，不能把提醒推到 DDL 之后 —— 最晚到截止前 1 分钟就提醒，
+ * 这样「稍后」不会让人错过 DDL。若截止已在 1 分钟内，则立刻恢复（下一次检查即提醒）。
+ */
+function clampSnooze(desiredUntil, dueMs, now) {
+  const limit = dueMs - DDL_MARGIN_MS;
+  const until = Math.min(desiredUntil, limit);
+  return until > now ? until : now;
+}
 
 /* 时长文案：分钟 / 小时 / 天 */
 function durationText(ms) {
@@ -65,13 +77,13 @@ function dueReminders(todos, settings, fired, now, opts) {
     const dueMs = new Date(t.due).getTime();
     if (!Number.isFinite(dueMs)) return;
 
-    // 稍后提醒：未到恢复时刻则完全不打扰；到点了就发一条「稍后提醒」并消费掉
+    // 稍后提醒：未到恢复时刻则完全不打扰；到点了就发一条提醒并消费掉
     if (snoozeNext[t.id]) {
       if (now < snoozeNext[t.id]) return;
       delete snoozeNext[t.id];
       // 本次只发这一条；把已过点的提醒点一并标记，避免稍后又冒出一条普通提醒
       stages.forEach(h => { if (dueMs - h * 3600e3 <= now) next[t.id + '-' + h] = now; });
-      hits.push({ id: t.id, title: '稍后提醒', body: bodyOf(t, dueMs, now) });
+      hits.push({ id: t.id, title: dueMs <= now ? '任务已逾期' : '稍后提醒', body: bodyOf(t, dueMs, now) });
       return;
     }
 
@@ -110,4 +122,4 @@ function summarize(hits) {
   };
 }
 
-module.exports = { STAGES, DEFAULT_TYPE, CATCHUP_MS, FIRED_TTL_MS, SNOOZE_TTL_MS, durationText, dueReminders, summarize };
+module.exports = { STAGES, DEFAULT_TYPE, CATCHUP_MS, FIRED_TTL_MS, SNOOZE_TTL_MS, DDL_MARGIN_MS, durationText, clampSnooze, dueReminders, summarize };

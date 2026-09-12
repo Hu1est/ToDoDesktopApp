@@ -5,7 +5,7 @@
 'use strict';
 
 const assert = require('assert');
-const { dueReminders, summarize, durationText, STAGES, CATCHUP_MS } = require('../reminder');
+const { dueReminders, summarize, durationText, STAGES, CATCHUP_MS, DDL_MARGIN_MS, clampSnooze } = require('../reminder');
 
 const H = 3600e3, D = 864e5;
 const NOW = new Date('2026-03-10T12:00:00').getTime();
@@ -140,6 +140,37 @@ test('稍后提醒：到点后发一条「稍后提醒」并消费记录', () =>
 test('稍后提醒：任务被删除后记录被清理', () => {
   const r = dueReminders([], settings(), {}, NOW, { snooze: { gone: NOW + 10 * 60000 } });
   assert.deepStrictEqual(r.snooze, {});
+});
+
+test('稍后提醒：到点时已逾期则标题为「任务已逾期」', () => {
+  const t = task({ due: new Date(NOW - 10 * 60000).toISOString() });
+  const r = dueReminders([t], settings(), {}, NOW, { catchUp: true, snooze: { x: NOW - 1 } });
+  assert.strictEqual(r.hits.length, 1);
+  assert.strictEqual(r.hits[0].title, '任务已逾期');
+  assert.strictEqual(r.hits[0].body, '「任务」已逾期 10 分钟');
+});
+
+test('稍后时间的夹紧：剩余时间比推迟时间短时，最晚到截止前 1 分钟', () => {
+  const dueIn30 = NOW + 30 * 60000;
+  // 想推迟 10 分钟，DDL 还有 30 分钟 → 按 10 分钟
+  assert.strictEqual(clampSnooze(NOW + 10 * 60000, dueIn30, NOW), NOW + 10 * 60000);
+  // 想推迟 1 小时，DDL 只剩 20 分钟 → 夹到截止前 1 分钟
+  assert.strictEqual(clampSnooze(NOW + 3600e3, dueIn30 - 10 * 60000, NOW), dueIn30 - 10 * 60000 - DDL_MARGIN_MS);
+  // DDL 已在 1 分钟内 → 立刻恢复（下一次检查就提醒）
+  assert.strictEqual(clampSnooze(NOW + 3600e3, NOW + 30e3, NOW), NOW);
+  assert.strictEqual(clampSnooze(NOW + 3600e3, NOW - 5 * 60000, NOW), NOW);
+});
+
+test('稍后时间的夹紧：夹到 DDL 前的任务会在那一刻被提醒', () => {
+  const t = task({ due: new Date(NOW + 20 * 60000).toISOString() });   // 20 分钟后到期
+  const until = clampSnooze(NOW + 3600e3, NOW + 20 * 60000, NOW);      // 点「1 小时」被夹到 19 分钟后
+  assert.strictEqual(until, NOW + 19 * 60000);
+  // 夹紧时刻之前不打扰
+  assert.strictEqual(dueReminders([t], settings(), {}, until - 1000, { catchUp: true, snooze: { x: until } }).hits.length, 0);
+  // 到点提醒，且文案说明只剩 1 分钟
+  const r = dueReminders([t], settings(), {}, until, { catchUp: true, snooze: { x: until } });
+  assert.strictEqual(r.hits.length, 1);
+  assert.strictEqual(r.hits[0].body, '「任务」还有 1 分钟到期');
 });
 
 test('多条提醒合并成一条通知文案', () => {

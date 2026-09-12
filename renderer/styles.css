@@ -286,6 +286,9 @@ body{display:flex;flex-direction:column}
 .tmeta{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.5rem;align-items:center;font-size:12px}
 .badge{padding:1px 8px;border-radius:6px;font-size:11px;font-weight:600;white-space:nowrap}
 .b-due{color:var(--t2)}
+/* 稍后提醒标记（可点击取消） */
+.b-snooze{cursor:pointer;color:var(--warning);background:rgba(245,158,11,.14);transition:.15s}
+.b-snooze:hover{background:var(--warning);color:#fff}
 .due-danger{color:var(--danger);font-weight:600}
 .due-warn{color:var(--warning);font-weight:600}
 .due-ok{color:var(--success)}

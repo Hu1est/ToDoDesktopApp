@@ -4,7 +4,7 @@
  */
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell, nativeTheme, screen, powerMonitor, globalShortcut } = require('electron');
 const { execFileSync } = require('child_process');
-const { dueReminders, summarize } = require('./reminder');
+const { dueReminders, summarize, clampSnooze } = require('./reminder');
 const path = require('path');
 const fs = require('fs');
 
@@ -320,6 +320,13 @@ function buildTrayMenu() {
         click: () => applySnooze(lastReminderIds, snoozeTarget(kind))
       }))
     },
+    ...(snoozeCount() ? [{
+      label: '取消稍后提醒（' + snoozeCount() + ' 项）',
+      click: () => {
+        const n = cancelSnooze(null);
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app-toast', { title: '已取消稍后提醒', body: '共取消 ' + n + ' 项' });
+      }
+    }] : []),
     { label: '悬浮窗', click: () => toggleFloatWindow() },
     { type: 'separator' },
     {
@@ -430,18 +437,59 @@ function snoozeLabel(kind) {
   const t = new Date(snoozeTarget(kind));
   return kind === 'tomorrow' ? ('明天 ' + t.getHours() + ':00') : (kind === '1h' ? '1 小时' : '10 分钟');
 }
-function applySnooze(ids, untilMs) {
+
+/* 下发 snooze 记录变化：主窗口据此刷新任务行上的「稍后」标记 */
+function broadcastSnooze() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('snooze-changed');
+}
+
+/**
+ * 记下稍后提醒
+ * 想推迟的时间若长于「距 DDL 的剩余时间」，会被夹到截止前 1 分钟
+ * （见 reminder.js 的 clampSnooze），保证「稍后」不会让人错过 DDL。
+ */
+function applySnooze(ids, desiredUntil) {
   const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
   if (!list.length) return false;
+  const now = Date.now();
+  const todos = store.get('todos', []) || [];
   const snooze = Object.assign({}, store.get('snooze', {}) || {});
-  list.forEach(id => { snooze[id] = untilMs; });
+  let earliest = Infinity, clampedCount = 0;
+  list.forEach(id => {
+    const t = todos.find(x => x && x.id === id);
+    const dueMs = t ? new Date(t.due).getTime() : NaN;
+    let until = desiredUntil;
+    if (Number.isFinite(dueMs)) {
+      const c = clampSnooze(desiredUntil, dueMs, now);
+      if (c !== desiredUntil) clampedCount++;
+      until = c;
+    }
+    snooze[id] = until;
+    if (until < earliest) earliest = until;
+  });
   store.set('snooze', snooze);
   lastReminderIds = [];
   if (tray) tray.setContextMenu(buildTrayMenu());
-  const body = '「稍后提醒」已推迟到 ' + whileText(untilMs) + '，到点会再提醒你一次';
+  broadcastSnooze();
+  const note = clampedCount ? '（不超过 DDL，截止前 1 分钟提醒）' : '';
+  const body = '已推迟到 ' + whileText(earliest) + note + '，到点会再提醒一次；可在任务行上点「稍后」标记取消';
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app-toast', { title: '已稍后提醒', body: body });
   return true;
 }
+
+/* 取消稍后提醒：ids 为空表示全部取消 */
+function cancelSnooze(ids) {
+  const snooze = Object.assign({}, store.get('snooze', {}) || {});
+  const list = Array.isArray(ids) ? ids.filter(Boolean) : [];
+  const keys = list.length ? list.filter(id => snooze[id]) : Object.keys(snooze);
+  if (!keys.length) return false;
+  keys.forEach(id => { delete snooze[id]; });
+  store.set('snooze', snooze);
+  if (tray) tray.setContextMenu(buildTrayMenu());
+  broadcastSnooze();
+  return keys.length;
+}
+function snoozeCount() { return Object.keys(store.get('snooze', {}) || {}).length; }
 function whileText(untilMs) {
   const mins = Math.round((untilMs - Date.now()) / 60000);
   if (mins <= 60) return mins + ' 分钟后';
@@ -474,7 +522,11 @@ function checkReminders(catchUp) {
   const res = dueReminders(store.get('todos', []), store.get('settings', {}), before, now, { catchUp: catchUp, snooze: snoozeBefore });
   // 只有记录真的变了才写盘，避免每 30 秒无谓地写一次文件
   if (JSON.stringify(res.fired) !== JSON.stringify(before)) store.set('fired', res.fired);
-  if (JSON.stringify(res.snooze) !== JSON.stringify(snoozeBefore)) store.set('snooze', res.snooze);
+  if (JSON.stringify(res.snooze) !== JSON.stringify(snoozeBefore)) {
+    store.set('snooze', res.snooze);            // 到点的稍后记录已被消费
+    if (tray) tray.setContextMenu(buildTrayMenu());
+    broadcastSnooze();                          // 让主窗口上的「稍后」标记同步消失
+  }
   const msg = summarize(res.hits);
   if (msg) dispatchReminder(msg, res.hits);
 }
@@ -498,7 +550,8 @@ function registerIpc() {
   ipcMain.handle('data-load', () => {
     const todos = store.get('todos', []);
     const settings = store.get('settings', {});
-    return { todos, settings };
+    const snooze = store.get('snooze', {}) || {};      // 稍后提醒记录（主窗口用于显示/取消）
+    return { todos, settings, snooze };
   });
   ipcMain.handle('data-save', (e, data) => {
     if (data.todos !== undefined) store.set('todos', data.todos);
@@ -589,10 +642,13 @@ function registerIpc() {
 
   // 稍后提醒：把任务推迟到某个时刻（由提醒横幅、胶囊上的「稍后」或托盘菜单触发）
   ipcMain.handle('snooze-set', (e, { ids, ms }) => {
-    const until = ms === 'tomorrow' ? snoozeTarget('tomorrow') : Number(ms) > 0 ? Date.now() + Number(ms) : 0;
-    if (!until) return false;
-    return applySnooze(ids, until);
+    const desired = ms === 'tomorrow' ? snoozeTarget('tomorrow') : Number(ms) > 0 ? Date.now() + Number(ms) : 0;
+    if (!desired) return false;
+    return applySnooze(ids, desired);
   });
+
+  // 取消稍后提醒（任务行上的「稍后」标记、托盘菜单）
+  ipcMain.handle('snooze-clear', (e, { ids }) => cancelSnooze(ids));
 
   // 退出操作（设置 → 退出操作，直接选择）
   ipcMain.handle('close-action-get', () => getCloseAction());
