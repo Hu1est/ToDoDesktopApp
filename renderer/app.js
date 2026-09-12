@@ -146,15 +146,17 @@ async function saveData() {
   catch (error) { console.warn('数据保存失败:', error); }
 }
 
-/* ---------- 示例数据（首次） ---------- */
+/* ---------- 示例数据（首次启动）
+   给新用户一份可直接看到效果的样例；这些是「示例」而不是用户自己的任务，
+   因此默认关闭智能提醒（notify:false），避免刚打开就弹出不相关的提醒。 */
 function seed() {
   if (state.todos.length) return;
   const day = 864e5, now = Date.now();
   state.todos = [
-    { id:uid(), title:'阅读 React 文档', desc:'学习最新的 React 特性并记录笔记', due:new Date(now+2*day).toISOString(), prio:'medium', cat:'study', tags:['学习','React'], done:false, notify:true, created:Date.now() },
-    { id:uid(), title:'提交周报', desc:'整理本周工作内容并提交给上级', due:new Date(now+day).toISOString(), prio:'high', cat:'work', tags:['工作','报告'], done:false, notify:true, created:Date.now() },
-    { id:uid(), title:'购买日用品', desc:'补充生活必需品', due:new Date(now+3*day).toISOString(), prio:'low', cat:'shopping', tags:['购物'], done:false, notify:true, created:Date.now() },
-    { id:uid(), title:'健身 30 分钟', desc:'完成今日锻炼计划', due:new Date(now+4*3600e3).toISOString(), prio:'medium', cat:'health', tags:['运动'], done:false, notify:true, created:Date.now() },
+    { id:uid(), title:'阅读 React 文档', desc:'学习最新的 React 特性并记录笔记', due:new Date(now+2*day).toISOString(), prio:'medium', cat:'study', tags:['学习','React'], done:false, notify:false, created:Date.now() },
+    { id:uid(), title:'提交周报', desc:'整理本周工作内容并提交给上级', due:new Date(now+day).toISOString(), prio:'high', cat:'work', tags:['工作','报告'], done:false, notify:false, created:Date.now() },
+    { id:uid(), title:'购买日用品', desc:'补充生活必需品', due:new Date(now+3*day).toISOString(), prio:'low', cat:'shopping', tags:['购物'], done:false, notify:false, created:Date.now() },
+    { id:uid(), title:'健身 30 分钟', desc:'完成今日锻炼计划', due:new Date(now+4*3600e3).toISOString(), prio:'medium', cat:'health', tags:['运动'], done:false, notify:false, created:Date.now() },
     { id:uid(), title:'整理桌面', desc:'清理工作台和文件', due:new Date(now-day).toISOString(), prio:'low', cat:'life', tags:['整理'], done:true, notify:false, created:Date.now() }
   ];
   saveData();
@@ -250,12 +252,12 @@ function overdueText(ms) {
 function dueInfo(t) {
   const d = new Date(t.due), now = new Date(), ts = new Date(); ts.setHours(0,0,0,0);
   const diff = d - now, diffDays = (d.getTime() - ts.getTime()) / 864e5;
-  const hm = d.getHours() + ':' + pad(d.getMinutes());
+  const hm = pad(d.getHours()) + ':' + pad(d.getMinutes());   // 小时也补零，避免出现「1:26」这种不一致
   let text, cls;
   if (t.done) { text = '已完成'; cls = 'due-ok'; }
   else if (diff < 0) { text = '已逾期 ' + overdueText(-diff); cls = 'due-danger'; }
   else if (fmtDate(d) === fmtDate(now)) { text = '今天 ' + hm; cls = 'due-warn'; }
-  else if (diffDays < 1) { text = '明天 ' + hm; cls = 'due-warn'; }
+  else if (diffDays < 2) { text = '明天 ' + hm; cls = 'due-warn'; }   // 明天任意时刻都说「明天」
   else if (diffDays < 7) { text = Math.round(diffDays) + ' 天后 ' + hm; cls = 'due-ok'; }
   else { text = fmtDate(d) + ' ' + hm; cls = 'due-ok'; }
   return { text, cls };
@@ -277,7 +279,7 @@ function snoozeText(untilMs) {
   const today = new Date(); today.setHours(0,0,0,0);
   const day = new Date(untilMs); day.setHours(0,0,0,0);
   const days = Math.round((day - today) / 864e5);
-  const hmTxt = d.getHours() + ':' + pad(d.getMinutes());
+  const hmTxt = pad(d.getHours()) + ':' + pad(d.getMinutes());
   return (days <= 0 ? '' : days === 1 ? '明天 ' : (d.getMonth()+1) + '/' + d.getDate() + ' ') + hmTxt;
 }
 

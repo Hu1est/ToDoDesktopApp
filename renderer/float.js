@@ -241,8 +241,8 @@ function shortTitle(s) {
   const t = String(s || '');
   return t.length > 9 ? t.slice(0,9) + '…' : t;
 }
-/* 时刻 → h:mm */
-function hm(d) { return d.getHours() + ':' + pad(d.getMinutes()); }
+/* 时刻 → h:mm（小时也补零，与主窗口一致） */
+function hm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
 /* 已超时时长：分钟 / 小时 / 天（用于「今日内逾期」这类不足一天的超时） */
 function overdueText(ms) {
   const min = Math.max(1, Math.floor(ms / 60000));
